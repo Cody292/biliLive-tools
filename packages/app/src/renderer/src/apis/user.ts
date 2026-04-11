@@ -2,6 +2,21 @@ import request from "./request";
 import { generateHMACSHA256 } from "../utils";
 import type { BiliUser } from "@biliLive-tools/types";
 
+const getBiliKeyHeaders = () => {
+  if (!window.isWeb) {
+    return {};
+  }
+
+  const biliKey = window.localStorage.getItem("bilikey") || window.localStorage.getItem("key") || "";
+  if (!biliKey) {
+    return {};
+  }
+
+  return {
+    "x-bililive-tools-bilikey": biliKey,
+  };
+};
+
 /**
  * @description Get user list
  */
@@ -49,25 +64,39 @@ const getCookie = async (uid: number) => {
   const secret = "r96gkr8ahc34fsrewr34";
   const signature = await generateHMACSHA256(`${uid}${timestamp}`, secret);
 
-  const res = await request.post(`/user/get_cookie`, {
-    uid,
-    timestamp,
-    signature,
-  });
+  const res = await request.post(
+    `/user/get_cookie`,
+    {
+      uid,
+      timestamp,
+      signature,
+    },
+    {
+      headers: getBiliKeyHeaders(),
+    },
+  );
   const data = res.data;
 
   return data;
 };
 
 const exportAll = async (): Promise<BiliUser[]> => {
-  const res = await request.get(`/user/export`);
+  const res = await request.get(`/user/export`, {
+    headers: getBiliKeyHeaders(),
+  });
   return res.data;
 };
 
 const exportSingle = async (uid: number): Promise<BiliUser> => {
-  const res = await request.post(`/user/export_single`, {
-    uid,
-  });
+  const res = await request.post(
+    `/user/export_single`,
+    {
+      uid,
+    },
+    {
+      headers: getBiliKeyHeaders(),
+    },
+  );
   return res.data;
 };
 

@@ -7,6 +7,24 @@ const router = new Router({
   prefix: "/user",
 });
 
+const verifyBiliKeyForWeb = (ctx: Router.RouterContext): boolean => {
+  const serverBiliKey = process.env.BILILIVE_TOOLS_BILIKEY;
+  if (!serverBiliKey) {
+    return true;
+  }
+
+  const requestBiliKey = ctx.headers["x-bililive-tools-bilikey"];
+  const headerBiliKey = Array.isArray(requestBiliKey) ? requestBiliKey[0] : requestBiliKey;
+
+  if (headerBiliKey !== serverBiliKey) {
+    ctx.status = 403;
+    ctx.body = "BILIKEY 校验失败";
+    return false;
+  }
+
+  return true;
+};
+
 router.get("/list", async (ctx) => {
   const list = biliService.readUserList();
 
@@ -39,6 +57,10 @@ router.post("/update_auth", async (ctx) => {
 });
 
 router.post("/get_cookie", async (ctx) => {
+  if (!verifyBiliKeyForWeb(ctx)) {
+    return;
+  }
+
   const { uid, timestamp, signature } = ctx.request.body as {
     uid: number;
     timestamp: number;
@@ -79,11 +101,19 @@ router.post("/get_cookie", async (ctx) => {
 });
 
 router.get("/export", async (ctx) => {
+  if (!verifyBiliKeyForWeb(ctx)) {
+    return;
+  }
+
   const list = biliService.readUserList();
   ctx.body = list;
 });
 
 router.post("/export_single", async (ctx) => {
+  if (!verifyBiliKeyForWeb(ctx)) {
+    return;
+  }
+
   const { uid } = ctx.request.body as { uid: number };
   const user = biliService.readUser(uid);
   if (!user) {
