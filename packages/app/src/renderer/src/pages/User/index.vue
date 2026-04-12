@@ -239,6 +239,9 @@ const onImportAllFileChange = async (event: Event) => {
 };
 
 const getCookie = async (uid: number) => {
+  const isVerified = await verifyBiliKey();
+  if (!isVerified) return;
+
   const cookie = await userApi.getCookie(uid);
   await copy(cookie);
 
