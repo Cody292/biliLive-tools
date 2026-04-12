@@ -1,13 +1,28 @@
 import showInput from "@renderer/components/showInput";
 
-export async function verifyBiliKey(): Promise<boolean> {
+export type VerifyBiliKeyBlockedReason = "missing" | "mismatch" | "cancelled";
+
+interface VerifyBiliKeyOptions {
+  onBlocked?: (reason: VerifyBiliKeyBlockedReason) => void;
+}
+
+export async function verifyBiliKey(options?: VerifyBiliKeyOptions): Promise<boolean> {
   if (!window.isWeb) {
     return true;
   }
 
-  const configuredKey = import.meta.env.VITE_BILILIVE_TOOLS_BILIKEY;
+  const viteKey = import.meta.env.VITE_BILILIVE_TOOLS_BILIKEY;
+  const directKey = Reflect.get(import.meta.env, "BILILIVE_TOOLS_BILIKEY");
+  const configuredKey = (
+    typeof viteKey === "string"
+      ? viteKey
+      : typeof directKey === "string"
+        ? directKey
+        : ""
+  ).trim();
+
   if (!configuredKey) {
-    window.alert("未配置 BILILIVE_TOOLS_BILIKEY，当前操作已拦截");
+    options?.onBlocked?.("missing");
     return false;
   }
 
@@ -20,8 +35,13 @@ export async function verifyBiliKey(): Promise<boolean> {
   });
 
   if (typeof userInput !== "string") {
+    options?.onBlocked?.("cancelled");
     return false;
   }
 
-  return userInput.trim() === configuredKey;
+  const isMatched = userInput.trim() === configuredKey;
+  if (!isMatched) {
+    options?.onBlocked?.("mismatch");
+  }
+  return isMatched;
 }

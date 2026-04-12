@@ -141,9 +141,32 @@ const updateAuth = async (uid: number) => {
 const { copy } = useClipboard({ legacy: true });
 const allImportInput = ref<HTMLInputElement | null>(null);
 
-const downloadJSON = async (name: string, data: unknown) => {
-  const isVerified = await verifyBiliKey();
-  if (!isVerified) return;
+const showBiliKeyBlockedNotice = (reason: "missing" | "mismatch" | "cancelled") => {
+  if (reason === "missing") {
+    notice.error({
+      title: "未配置 BILILIVE_TOOLS_BILIKEY，当前操作已拦截",
+      duration: 1600,
+    });
+    return;
+  }
+  if (reason === "mismatch") {
+    notice.error({
+      title: "密钥错误，当前操作已拦截",
+      duration: 1600,
+    });
+    return;
+  }
+  notice.warning({
+    title: "已取消校验，当前操作已拦截",
+    duration: 1200,
+  });
+};
+
+const downloadJSON = async (name: string, data: unknown): Promise<boolean> => {
+  const isVerified = await verifyBiliKey({
+    onBlocked: showBiliKeyBlockedNotice,
+  });
+  if (!isVerified) return false;
 
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -154,6 +177,7 @@ const downloadJSON = async (name: string, data: unknown) => {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+  return true;
 };
 
 const readJSONFile = async <T>(file: File): Promise<T> => {
@@ -184,7 +208,8 @@ const isBiliUser = (value: unknown): value is BiliUser => {
 
 const exportCurrentAccount = async (uid: number) => {
   const user = await userApi.exportSingle(uid);
-  downloadJSON(`bili-user-${uid}.json`, user);
+  const isExported = await downloadJSON(`bili-user-${uid}.json`, user);
+  if (!isExported) return;
   notice.success({
     title: "导出成功",
     duration: 1200,
@@ -193,7 +218,8 @@ const exportCurrentAccount = async (uid: number) => {
 
 const exportAllAccounts = async () => {
   const users = await userApi.exportAll();
-  downloadJSON("bili-users-all.json", users);
+  const isExported = await downloadJSON("bili-users-all.json", users);
+  if (!isExported) return;
   notice.success({
     title: "导出成功",
     duration: 1200,
@@ -239,7 +265,9 @@ const onImportAllFileChange = async (event: Event) => {
 };
 
 const getCookie = async (uid: number) => {
-  const isVerified = await verifyBiliKey();
+  const isVerified = await verifyBiliKey({
+    onBlocked: showBiliKeyBlockedNotice,
+  });
   if (!isVerified) return;
 
   const cookie = await userApi.getCookie(uid);
