@@ -1,6 +1,7 @@
+import { configApi } from "@renderer/apis";
 import showInput from "@renderer/components/showInput";
 
-export type VerifyBiliKeyBlockedReason = "missing" | "mismatch" | "cancelled";
+export type VerifyBiliKeyBlockedReason = "missing" | "mismatch" | "error" | "cancelled";
 
 interface VerifyBiliKeyOptions {
   onBlocked?: (reason: VerifyBiliKeyBlockedReason) => void;
@@ -9,21 +10,6 @@ interface VerifyBiliKeyOptions {
 export async function verifyBiliKey(options?: VerifyBiliKeyOptions): Promise<boolean> {
   if (!window.isWeb) {
     return true;
-  }
-
-  const viteKey = import.meta.env.VITE_BILILIVE_TOOLS_BILIKEY;
-  const directKey = Reflect.get(import.meta.env, "BILILIVE_TOOLS_BILIKEY");
-  const configuredKey = (
-    typeof viteKey === "string"
-      ? viteKey
-      : typeof directKey === "string"
-        ? directKey
-        : ""
-  ).trim();
-
-  if (!configuredKey) {
-    options?.onBlocked?.("missing");
-    return false;
   }
 
   const userInput = await showInput({
@@ -39,9 +25,29 @@ export async function verifyBiliKey(options?: VerifyBiliKeyOptions): Promise<boo
     return false;
   }
 
-  const isMatched = userInput.trim() === configuredKey;
-  if (!isMatched) {
+  const key = userInput.trim();
+  if (!key) {
     options?.onBlocked?.("mismatch");
+    return false;
   }
-  return isMatched;
+
+  try {
+    const result = await configApi.verifyBiliKey(key);
+    const reason = result?.reason;
+
+    if (reason === "ok") {
+      return true;
+    }
+
+    if (reason === "missing" || reason === "mismatch") {
+      options?.onBlocked?.(reason);
+      return false;
+    }
+
+    options?.onBlocked?.("error");
+    return false;
+  } catch {
+    options?.onBlocked?.("error");
+    return false;
+  }
 }

@@ -141,7 +141,7 @@ const updateAuth = async (uid: number) => {
 const { copy } = useClipboard({ legacy: true });
 const allImportInput = ref<HTMLInputElement | null>(null);
 
-const showBiliKeyBlockedNotice = (reason: "missing" | "mismatch" | "cancelled") => {
+const showBiliKeyBlockedNotice = (reason: "missing" | "mismatch" | "error" | "cancelled") => {
   if (reason === "missing") {
     notice.error({
       title: "未配置 BILILIVE_TOOLS_BILIKEY，当前操作已拦截",
@@ -156,6 +156,13 @@ const showBiliKeyBlockedNotice = (reason: "missing" | "mismatch" | "cancelled") 
     });
     return;
   }
+  if (reason === "error") {
+    notice.error({
+      title: "校验服务异常，当前操作已拦截",
+      duration: 1600,
+    });
+    return;
+  }
   notice.warning({
     title: "已取消校验，当前操作已拦截",
     duration: 1200,
@@ -163,11 +170,6 @@ const showBiliKeyBlockedNotice = (reason: "missing" | "mismatch" | "cancelled") 
 };
 
 const downloadJSON = async (name: string, data: unknown): Promise<boolean> => {
-  const isVerified = await verifyBiliKey({
-    onBlocked: showBiliKeyBlockedNotice,
-  });
-  if (!isVerified) return false;
-
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -207,6 +209,11 @@ const isBiliUser = (value: unknown): value is BiliUser => {
 };
 
 const exportCurrentAccount = async (uid: number) => {
+  const isVerified = await verifyBiliKey({
+    onBlocked: showBiliKeyBlockedNotice,
+  });
+  if (!isVerified) return;
+
   const user = await userApi.exportSingle(uid);
   const isExported = await downloadJSON(`bili-user-${uid}.json`, user);
   if (!isExported) return;
@@ -217,6 +224,11 @@ const exportCurrentAccount = async (uid: number) => {
 };
 
 const exportAllAccounts = async () => {
+  const isVerified = await verifyBiliKey({
+    onBlocked: showBiliKeyBlockedNotice,
+  });
+  if (!isVerified) return;
+
   const users = await userApi.exportAll();
   const isExported = await downloadJSON("bili-users-all.json", users);
   if (!isExported) return;
