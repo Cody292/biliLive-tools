@@ -290,7 +290,7 @@ onActivated(() => {
       left: 0;
       width: 100%;
       height: 100%;
-      color: var(--text-inverse);
+      color: #ffffff;
       background-color: var(--bg-modal);
       display: flex;
       justify-content: center;
