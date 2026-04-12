@@ -51,6 +51,7 @@
 
 <script setup lang="ts">
 import { userApi, taskApi } from "@renderer/apis";
+import { verifyBiliKey } from "@renderer/utils";
 import { useClipboard } from "@vueuse/core";
 import type { BiliUser } from "@biliLive-tools/types";
 
@@ -140,7 +141,10 @@ const updateAuth = async (uid: number) => {
 const { copy } = useClipboard({ legacy: true });
 const allImportInput = ref<HTMLInputElement | null>(null);
 
-const downloadJSON = (name: string, data: unknown) => {
+const downloadJSON = async (name: string, data: unknown) => {
+  const isVerified = await verifyBiliKey();
+  if (!isVerified) return;
+
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
