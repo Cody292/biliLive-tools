@@ -368,7 +368,7 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
     const payloadPackage = Response.decode(decompressed);
     this.updateHostFromPushServer((payloadPackage as { pushServer?: string }).pushServer);
 
-    let ack = null;
+    let ack: Buffer | null = null;
     // @ts-ignore
     if (payloadPackage.needAck) {
       const obj = PushFrame.create({

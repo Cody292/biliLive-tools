@@ -8,5 +8,6 @@ export default defineConfig({
     globalSetup: "./test-globals.js",
     setupFiles: ["./test/setup-mocks.ts"],
     globals: true,
+    environment: "node",
   },
 });
