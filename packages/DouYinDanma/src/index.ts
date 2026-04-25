@@ -4,6 +4,7 @@ import { TypedEmitter } from "tiny-typed-emitter";
 import { decompressGzip, getXMsStub, getSignature, getUserUniqueId } from "./utils.js";
 import protobuf from "./proto.js";
 import { getCookie } from "./api.js";
+import { ABogus } from "./abogus.js";
 
 import type {
   ChatMessage,
@@ -18,6 +19,29 @@ import type {
   PrivilegeScreenChatMessage,
   ScreenChatMessage,
 } from "../types/types.js";
+
+type DouyinProtoModule = {
+  douyin: {
+    PushFrame: {
+      decode(data: Buffer): any;
+      create(data: Record<string, unknown>): any;
+      encode(data: unknown): { finish(): Buffer };
+    };
+    Response: {
+      decode(data: unknown): any;
+    };
+    ChatMessage: { decode(data: unknown): { toJSON(): unknown } };
+    RoomUserSeqMessage: { decode(data: unknown): { toJSON(): unknown } };
+    MemberMessage: { decode(data: unknown): { toJSON(): unknown } };
+    GiftMessage: { decode(data: unknown): { toJSON(): unknown } };
+    LikeMessage: { decode(data: unknown): { toJSON(): unknown } };
+    SocialMessage: { decode(data: unknown): { toJSON(): unknown } };
+    RoomStatsMessage: { decode(data: unknown): { toJSON(): unknown } };
+    RoomRankMessage: { decode(data: unknown): { toJSON(): unknown } };
+    PrivilegeScreenChatMessage: { decode(data: unknown): { toJSON(): unknown } };
+    ScreenChatMessage: { decode(data: unknown): { toJSON(): unknown } };
+  };
+};
 
 
 
@@ -58,6 +82,8 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
   private isTimeoutCheckRunning: boolean = false;
   private isReconnecting: boolean = false;
   private host: string;
+  private readonly defaultHost: string;
+  private readonly userAgent: string;
 
   constructor(
     roomId: string,
@@ -81,7 +107,10 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
     this.cookie = options.cookie;
     this.timeoutInterval = options.timeoutInterval ?? 100000; // 默认100秒
     this.lastMessageTime = Date.now();
-    this.host = options.host ?? "webcast100-ws-web-hl.douyin.com";
+    this.defaultHost = "webcast100-ws-web-hl.douyin.com";
+    this.host = options.host ?? this.defaultHost;
+    this.userAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 
     if (this.autoStart) {
       this.connect();
@@ -99,7 +128,7 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
     this.ws = new WebSocket(url, {
       headers: {
         Cookie: cookies,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+        "User-Agent": this.userAgent,
         Origin: "https://live.douyin.com",
         Referer: "https://live.douyin.com/",
       },
@@ -304,36 +333,25 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
   }
 
   async decode(data: Buffer) {
-    // @ts-ignore
-    const PushFrame = protobuf.douyin.PushFrame;
-    // @ts-ignore
-    const Response = protobuf.douyin.Response;
-    // @ts-ignore
-    const ChatMessage = protobuf.douyin.ChatMessage;
-    // @ts-ignore
-    const RoomUserSeqMessage = protobuf.douyin.RoomUserSeqMessage;
-    // @ts-ignore
-    const MemberMessage = protobuf.douyin.MemberMessage;
-    // @ts-ignore
-    const GiftMessage = protobuf.douyin.GiftMessage;
-    // @ts-ignore
-    const LikeMessage = protobuf.douyin.LikeMessage;
-    // @ts-ignore
-    const SocialMessage = protobuf.douyin.SocialMessage;
-    // @ts-ignore
-    const RoomStatsMessage = protobuf.douyin.RoomStatsMessage;
-    // @ts-ignore
-    const RoomRankMessage = protobuf.douyin.RoomRankMessage;
-    // @ts-ignore
-    const PrivilegeScreenChatMessage = protobuf.douyin.PrivilegeScreenChatMessage;
-    // @ts-ignore
-    const ScreenChatMessage = protobuf.douyin.ScreenChatMessage;
+    const douyinProto = protobuf as DouyinProtoModule;
+    const PushFrame = douyinProto.douyin.PushFrame;
+    const Response = douyinProto.douyin.Response;
+    const ChatMessage = douyinProto.douyin.ChatMessage;
+    const RoomUserSeqMessage = douyinProto.douyin.RoomUserSeqMessage;
+    const MemberMessage = douyinProto.douyin.MemberMessage;
+    const GiftMessage = douyinProto.douyin.GiftMessage;
+    const LikeMessage = douyinProto.douyin.LikeMessage;
+    const SocialMessage = douyinProto.douyin.SocialMessage;
+    const RoomStatsMessage = douyinProto.douyin.RoomStatsMessage;
+    const RoomRankMessage = douyinProto.douyin.RoomRankMessage;
+    const PrivilegeScreenChatMessage = douyinProto.douyin.PrivilegeScreenChatMessage;
+    const ScreenChatMessage = douyinProto.douyin.ScreenChatMessage;
     const wssPackage = PushFrame.decode(data);
 
     // @ts-ignore
     const logId = wssPackage.logId;
 
-    let decompressed;
+    let decompressed: unknown;
     try {
       // @ts-ignore
       if (wssPackage.payload instanceof Buffer) {
@@ -348,6 +366,7 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
     }
 
     const payloadPackage = Response.decode(decompressed);
+    this.updateHostFromPushServer((payloadPackage as { pushServer?: string }).pushServer);
 
     let ack = null;
     // @ts-ignore
@@ -407,6 +426,30 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
     }
     return [msgs, ack];
   }
+  private getResolvedHost(pushServer?: string): string {
+    const normalized = pushServer?.trim();
+    if (!normalized) {
+      return this.host;
+    }
+
+    if (normalized.startsWith("ws://") || normalized.startsWith("wss://")) {
+      return new URL(normalized).host;
+    }
+
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+      return new URL(normalized).host;
+    }
+
+    return normalized;
+  }
+
+  private updateHostFromPushServer(pushServer?: string) {
+    const resolvedHost = this.getResolvedHost(pushServer);
+    if (resolvedHost) {
+      this.host = resolvedHost;
+    }
+  }
+
   async getWsInfo(roomId: string): Promise<string | undefined> {
     const userUniqueId = getUserUniqueId();
     // const userUniqueId = "7877922945687137703";
@@ -432,12 +475,12 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
     let signature: string;
     try {
       const m = getXMsStub(sigParams);
-      signature = getSignature(m); // 这里应该获取签名
-    } catch (e) {
+      signature = getSignature(m);
+    } catch {
       return;
     }
 
-    const webcast5Params = {
+    const baseParams: Record<string, string> = {
       app_name: "douyin_web",
       room_id: roomId,
       compress: "gzip",
@@ -448,7 +491,6 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
       did_rule: "3",
       user_unique_id: userUniqueId,
       identity: "audience",
-      signature: signature.toString(),
       device_platform: "web",
       cookie_enabled: "true",
       screen_width: "1920",
@@ -456,7 +498,7 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
       browser_language: "zh-CN",
       browser_platform: "Win32",
       browser_name: "Mozilla",
-      browser_version: "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+      browser_version: this.userAgent,
       browser_online: "true",
       tz_name: "Etc/GMT-8",
       host: "https://live.douyin.com",
@@ -466,9 +508,14 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
       im_path: "/webcast/im/fetch/",
       need_persist_msg_count: "15",
       heartbeatDuration: "0",
+      signature: signature.toString(),
     };
 
-    const wssUrl = `wss://${this.host}/webcast/im/push/v2/?${new URLSearchParams(webcast5Params).toString()}`;
+    const abogus = new ABogus(undefined, this.userAgent);
+    const [finalQuery] = abogus.generateAbogus(new URLSearchParams(baseParams).toString(), "");
+
+    const resolvedHost = this.host || this.defaultHost;
+    const wssUrl = `wss://${resolvedHost}/webcast/im/push/v2/?${finalQuery}`;
     return wssUrl;
   }
 }
