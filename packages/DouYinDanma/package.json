@@ -38,6 +38,7 @@
   "license": "GPLV3",
   "dependencies": {
     "protobufjs": "^7.4.0",
+    "sm-crypto": "^0.3.13",
     "tiny-typed-emitter": "^2.1.0",
     "ws": "^8.18.0"
   },

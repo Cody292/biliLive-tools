@@ -27,10 +27,9 @@ export function getXMsStub(params: Record<string, string | number>): string {
 export function getSignature(xMsStub: string): string {
   try {
     return get_sign(xMsStub);
-  } catch {
-    return "00000000";
+  } catch (err) {
+    throw err;
   }
-  return "00000000";
 }
 
 export function decompressGzip(buffer: Buffer) {
