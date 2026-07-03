@@ -16,3 +16,19 @@ docs/.vitepress/dist
 docs/.vitepress/cache
 
 .DS_Store
+
+# Local/private workflow documents
+AGENTS.md
+planning-with-files/
+大纲.md
+git规范.md
+
+# Local test artifacts not intended for this publish
+packages/StreamGet/test/http.test.ts
+packages/DouYinDanma/test/
+packages/DouYinDanma/tsconfig.vitest.json
+packages/DouYinDanma/vitest.config.ts
+packages/DouYinRecorder/tests/cookiePolicy.test.ts
+packages/DouYinRecorder/tests/cookieRotation.test.ts
+packages/http/test/recorderToClient.test.ts
+scripts/install-bin.test.js
