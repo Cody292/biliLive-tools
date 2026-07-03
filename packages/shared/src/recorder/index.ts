@@ -387,6 +387,11 @@ export async function createRecorderManager(appConfig: AppConfig) {
       logger.info(`recorder: ${log.text}`);
     }
   });
+  manager.on("RecorderNotification", ({ title, content }) => {
+    void send(title, content, { type: "danmu" }).catch((error) => {
+      logger.error("发送录制器通知失败", error);
+    });
+  });
   manager.on("RecordStart", ({ recorder, recordHandle }) => {
     logger.info("Manager start", recorder, recordHandle);
     if (!recorder.extra) recorder.extra = {};
