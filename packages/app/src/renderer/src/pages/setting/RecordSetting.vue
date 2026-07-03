@@ -513,17 +513,59 @@
           </n-form-item>
           <n-form-item>
             <template #label>
-              <Tip text="Cookie" tip="~"></Tip>
+              <Tip
+                text="Cookie模式"
+                tip="关闭：录制流程不注入 Cookie；启用：录制中持续注入 Cookie，并在账号池 Cookie 失败后尝试切换到下一个启用账号。旧版仅保存礼物配置会自动按启用处理。"
+              ></Tip>
             </template>
-            <n-input v-model:value="config.recorder.douyin.cookie" type="password" />
-            <n-button
-              v-if="!isWeb"
-              type="primary"
-              style="margin-left: 10px"
-              @click="douyinLogin"
-              title="登录后退出即可获取cookie"
-              >登录</n-button
-            >
+            <n-select
+              v-model:value="config.recorder.douyin.mode"
+              :options="douyinCookieModeOptions"
+              style="width: 220px"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="账号池" tip="维护多个抖音Cookie账号，启用项会参与运行时选择"></Tip>
+            </template>
+            <div style="display: flex; width: 100%; flex-direction: column; gap: 10px">
+              <n-button type="primary" ghost style="width: fit-content" @click="addGlobalDouyinAccount"
+                >新增账号</n-button
+              >
+              <div
+                v-for="account in globalDouyinAccountsSorted"
+                :key="account.id"
+                style="display: flex; gap: 10px; align-items: center"
+              >
+                <n-input
+                  v-model:value="account.remark"
+                  placeholder="备注（如主号/备号）"
+                  style="width: 180px"
+                />
+                <n-input
+                  v-model:value="account.cookie"
+                  type="password"
+                  placeholder="请输入Cookie"
+                  style="width: 260px"
+                />
+                <n-input-number
+                  v-model:value="account.weight"
+                  :min="1"
+                  :show-button="false"
+                  placeholder="随机"
+                  clearable
+                  :parse="(val: string) => (val ? Number(val.replace(/\D/g, '')) : null)"
+                  :format="(val: number | null) => (val ? String(val) : '')"
+                  style="width: 100px"
+                >
+                  <template #prefix>权重</template>
+                </n-input-number>
+                <n-switch v-model:value="account.enabled" />
+                <n-button type="error" ghost @click="removeGlobalDouyinAccount(account.id)"
+                  >删除</n-button
+                >
+              </div>
+            </div>
           </n-form-item>
           <n-form-item>
             <template #label>
@@ -677,15 +719,71 @@ import {
   recorderDebugLevelOptions,
   douyinApiTypeOptions,
   huyaApiTypeOptions,
+  douyinCookieModeOptions,
   douyuStreamCodecOptions,
   douyuApiTypeOptions,
 } from "@renderer/enums/recorder";
 
-import type { AppConfig } from "@biliLive-tools/types";
+import type { AppConfig, DouyinCookieAccount } from "@biliLive-tools/types";
 
 const config = defineModel<AppConfig>("data", {
   default: () => {},
 });
+
+const ensureGlobalDouyinCookieConfig = () => {
+  if (!config.value?.recorder?.douyin) {
+    return;
+  }
+  config.value.recorder.douyin.mode = config.value.recorder.douyin.mode === "off" ? "off" : "always";
+  if (!Array.isArray(config.value.recorder.douyin.accounts)) {
+    config.value.recorder.douyin.accounts = [];
+  }
+};
+
+const createDouyinCookieAccount = (): DouyinCookieAccount => ({
+  id: `dy-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+  remark: "",
+  cookie: "",
+  enabled: true,
+  weight: 1,
+});
+
+const addGlobalDouyinAccount = () => {
+  ensureGlobalDouyinCookieConfig();
+  config.value.recorder.douyin.accounts.push(createDouyinCookieAccount());
+};
+
+const removeGlobalDouyinAccount = (id: string) => {
+  ensureGlobalDouyinCookieConfig();
+  config.value.recorder.douyin.accounts = config.value.recorder.douyin.accounts.filter(
+    (account) => account.id !== id,
+  );
+};
+
+const globalDouyinAccountsSorted = computed(() => {
+  return (config.value?.recorder?.douyin?.accounts ?? [])
+    .map((account, index) => ({ account, index }))
+    .sort((a, b) => {
+      const weightA = Number(a.account.weight ?? 0);
+      const weightB = Number(b.account.weight ?? 0);
+      if (weightA === weightB) {
+        return a.index - b.index;
+      }
+      return weightA - weightB;
+    })
+    .map((item) => item.account);
+});
+
+watch(
+  () => config.value?.recorder?.douyin,
+  () => {
+    ensureGlobalDouyinCookieConfig();
+  },
+  {
+    immediate: true,
+    deep: true,
+  },
+);
 
 const { userList } = storeToRefs(useUserInfoStore());
 const isWeb = computed(() => window.isWeb);
@@ -829,13 +927,6 @@ const xhsLogin = async () => {
   config.value.recorder.xhs.cookie = cookie;
 };
 
-const douyinLogin = async () => {
-  const status = await confirmCookieLoginRisk("抖音");
-  if (!status) return;
-
-  const cookie = await window.api.cookie.douyinLogin();
-  config.value.recorder.douyin.cookie = cookie;
-};
 </script>
 
 <style scoped lang="less">

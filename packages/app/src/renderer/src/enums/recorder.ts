@@ -391,6 +391,11 @@ export const douyinApiTypeOptions = [
   { label: "测试：负载均衡", value: "balance" },
 ];
 
+export const douyinCookieModeOptions = [
+  { label: "关闭", value: "off" },
+  { label: "启用", value: "always" },
+];
+
 export const huyaApiTypeOptions = [
   { label: "自动", value: "auto" },
   { label: "web", value: "web" },

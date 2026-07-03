@@ -80,6 +80,13 @@
             >
             <span class="tag area" v-if="item.area">{{ item.area }}</span>
             <span
+              v-if="item.providerId === 'DouYin' && item.extra?.currentDouyinCookieRemark"
+              class="tag cookie-remark"
+              :title="`当前 Cookie 备注：${item.extra.currentDouyinCookieRemark}`"
+            >
+              当前 Cookie：{{ item.extra.currentDouyinCookieRemark }}
+            </span>
+            <span
               class="tag state"
               :class="{
                 error: item.state === 'check-error',
@@ -328,6 +335,11 @@ const stateMap = {
       cursor: pointer;
     }
 
+    &.cookie-remark {
+      background-color: #f6ffed;
+      color: #389e0d;
+    }
+
     [data-theme="dark"] & {
       &.area {
         background: linear-gradient(135deg, rgba(22, 58, 46, 0.92) 0%, rgba(16, 49, 67, 0.92) 100%);
@@ -354,6 +366,11 @@ const stateMap = {
       &.record-blocked {
         background-color: #3a3a3a;
         color: #bfbfbf;
+      }
+
+      &.cookie-remark {
+        background-color: #1f3a1f;
+        color: #95de64;
       }
     }
   }
