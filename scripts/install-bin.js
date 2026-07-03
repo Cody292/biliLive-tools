@@ -1,9 +1,46 @@
-// import { fileURLToPath } from "node:url";
 import fs from "fs-extra";
 import path from "node:path";
-import download from "download";
+import { fileURLToPath } from "node:url";
+import { once } from "node:events";
 import { SingleBar } from "cli-progress";
 import JSZip from "jszip";
+
+const DOWNLOAD_URL_TIMEOUT_MS = 180_000;
+const DOWNLOAD_LOW_SPEED_WINDOW_MS = 30_000;
+const DOWNLOAD_LOW_SPEED_BYTES_PER_SECOND = 1024;
+
+export function getDownloadUrls(url) {
+  if (!url.startsWith("https://github.com/")) return [url];
+  return [...getGitHubProxyPrefixes().map((prefix) => `${prefix}${url}`), url];
+}
+
+export function getGitHubProxyPrefixes() {
+  const list = process.env.GITHUB_PROXY_PREFIXES ?? process.env.GITHUB_PROXY_LIST ?? process.env.GITHUB_PROXY_PREFIX ?? "";
+  return list
+    .split(",")
+    .map((prefix) => prefix.trim())
+    .filter(Boolean);
+}
+
+function getDownloadFilename(url, options = {}) {
+  return options.filename ?? path.basename(new URL(url).pathname);
+}
+
+function getDownloadTargetPath(url, destination, options = {}) {
+  return path.join(destination, getDownloadFilename(url, options));
+}
+
+export function validateDownloadedFile(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  const header = fs.readFileSync(filePath).subarray(0, 8);
+
+  if (extension === ".zip" && !(header[0] === 0x50 && header[1] === 0x4b)) {
+    throw new Error(`${filePath} 不是有效的 .zip 文件`);
+  }
+  if (extension === ".deb" && header.toString("utf8") !== "!<arch>\n") {
+    throw new Error(`${filePath} 不是有效的 .deb 文件`);
+  }
+}
 
 async function unzip(zipFile, destination) {
   const zip = new JSZip();
@@ -26,7 +63,53 @@ async function unzip(zipFile, destination) {
 }
 
 async function downloadFile(url, desc, options = {}) {
-  const downloader = download(url, desc, options);
+  const urls = getDownloadUrls(url);
+  let lastError;
+
+  for (const downloadUrl of urls) {
+    const targetPath = getDownloadTargetPath(downloadUrl, desc, options);
+    try {
+      console.log(`实际下载地址 ${downloadUrl}`);
+      await downloadWithProgress(downloadUrl, desc, options);
+      validateDownloadedFile(targetPath);
+      return;
+    } catch (error) {
+      lastError = error;
+      fs.removeSync(targetPath);
+      console.warn(`下载失败，尝试下一个地址: ${downloadUrl}`);
+    }
+  }
+
+  throw lastError;
+}
+
+async function downloadWithProgress(url, desc, options = {}) {
+  const targetPath = getDownloadTargetPath(url, desc, options);
+  await fs.ensureDir(desc);
+  const controller = new AbortController();
+  let abortError;
+  let downloadedBytes = 0;
+  let previousDownloadedBytes = 0;
+  let previousCheckAt = Date.now();
+  const abortDownload = (message) => {
+    abortError = new Error(message);
+    controller.abort(abortError);
+  };
+  const timeoutTimer = setTimeout(
+    () => abortDownload(`单个下载地址超过 ${DOWNLOAD_URL_TIMEOUT_MS / 1000} 秒未完成`),
+    DOWNLOAD_URL_TIMEOUT_MS,
+  );
+  const lowSpeedTimer = setInterval(() => {
+    if (downloadedBytes === 0) return;
+    const now = Date.now();
+    const elapsedSeconds = (now - previousCheckAt) / 1000;
+    const bytesPerSecond = (downloadedBytes - previousDownloadedBytes) / elapsedSeconds;
+    previousCheckAt = now;
+    previousDownloadedBytes = downloadedBytes;
+    if (bytesPerSecond < DOWNLOAD_LOW_SPEED_BYTES_PER_SECOND) {
+      abortDownload(`单个下载地址低速超过 ${DOWNLOAD_LOW_SPEED_WINDOW_MS / 1000} 秒`);
+    }
+  }, DOWNLOAD_LOW_SPEED_WINDOW_MS);
   const progressBar = new SingleBar({
     format: "下载进度 |{bar}| {percentage}% | ETA: {eta}s",
     barCompleteChar: "\u2588",
@@ -34,23 +117,42 @@ async function downloadFile(url, desc, options = {}) {
     hideCursor: true,
   });
   progressBar.start(100, 0);
-
-  downloader.on("downloadProgress", (progress) => {
-    progressBar.update(progress.percent * 100);
-  });
-  downloader.on("error", (err) => {
-    console.error(err);
-  });
-  downloader.on("end", () => {
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    if (!response.body) {
+      throw new Error("响应体为空");
+    }
+    const totalBytes = Number(response.headers.get("content-length")) || 0;
+    const output = fs.createWriteStream(targetPath);
+    try {
+      for await (const chunk of response.body) {
+        downloadedBytes += chunk.length;
+        if (totalBytes > 0) {
+          progressBar.update((downloadedBytes / totalBytes) * 100);
+        }
+        if (!output.write(chunk)) {
+          await once(output, "drain");
+        }
+      }
+      output.end();
+      await once(output, "finish");
+    } catch (error) {
+      output.destroy();
+      throw error;
+    }
     console.log("\n下载成功");
-  });
-  await downloader;
-  progressBar.stop();
+  } catch (error) {
+    throw abortError ?? error;
+  } finally {
+    clearTimeout(timeoutTimer);
+    clearInterval(lowSpeedTimer);
+    progressBar.stop();
+  }
 }
 
-/**
- * 下载 mesio 工具
- */
 async function downloadMesio() {
   // https://github.com/hua0512/rust-srec
   const version = "mesio-v0.4.1";
@@ -78,9 +180,6 @@ async function downloadMesio() {
   }
 }
 
-/**
- * 下载 BililiveRecorder 工具
- */
 async function downloadBililiveRecorder() {
   // https://github.com/renmu123/BililiveRecorder/releases
   const platforms = {
@@ -101,9 +200,6 @@ async function downloadBililiveRecorder() {
   }
 }
 
-/**
- * 下载 audiowaveform 工具
- */
 async function downloadAudioWaveform() {
   const version = "1.10.2";
   // https://github.com/bbc/audiowaveform
@@ -140,9 +236,6 @@ async function downloadAudioWaveform() {
   }
 }
 
-/**
- * 下载 DanmakuFactory 工具
- */
 async function downloadDanmakuFactory() {
   // https://github.com/renmu123/DanmakuFactory
 
@@ -170,9 +263,6 @@ async function downloadDanmakuFactory() {
   }
 }
 
-/**
- * 下载基础二进制文件
- */
 async function downloadBaseBinary() {
   const filename = `${process.platform}-${process.arch}-2.5.0.zip`;
   const downloadUrl = `https://github.com/renmu123/biliLive-tools/releases/download/0.2.1/${filename}`;
@@ -190,4 +280,6 @@ async function downloadBin() {
   await downloadDanmakuFactory();
 }
 
-downloadBin();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  downloadBin();
+}
