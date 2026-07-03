@@ -9,6 +9,15 @@ import type { XmlStreamStats } from "./xml_stream_controller.js";
 
 type FormatName = "auto" | "flv" | "hls" | "fmp4" | "flv_only" | "hls_only" | "fmp4_only";
 type CodecName = "auto" | "avc" | "hevc" | "avc_only" | "hevc_only";
+type DouyinCookieMode = "off" | "always" | "gift_save_only" | "only-save-gift";
+
+interface DouyinCookieAccount {
+  id?: string;
+  remark?: string;
+  cookie?: string;
+  enabled?: boolean;
+  weight?: number;
+}
 
 export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
   providerId: RecorderProvider<E>["id"];
@@ -50,6 +59,8 @@ export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
   qualityRetry?: number;
   /** 抖音是否使用双屏直播流，开启后如果是双屏直播，那么就使用拼接的流，默认为true */
   doubleScreen?: boolean;
+  douyinCookieMode?: DouyinCookieMode;
+  douyinCookieAccounts?: DouyinCookieAccount[];
   /** B站是否使用m3u8代理 */
   useM3U8Proxy?: boolean;
   /**B站m3u8代理url */
@@ -164,6 +175,11 @@ export interface DebugLog {
   text: string;
 }
 
+export interface RecorderNotification {
+  title: string;
+  content: string;
+}
+
 export type GetSavePath = (data: {
   owner: string;
   title: string;
@@ -188,6 +204,7 @@ export interface Recorder<E extends AnyObject = UnknownObject>
       Updated: (string | keyof Recorder)[];
       Message: Message;
       DebugLog: DebugLog;
+      Notification: RecorderNotification;
       // 检测到充电直播(付费/DRM 加密直播)
       ChargeLive: { channelId: string };
     }>,

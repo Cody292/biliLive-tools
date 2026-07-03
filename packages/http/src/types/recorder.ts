@@ -123,6 +123,8 @@ export type UpdateRecorderArgs = Pick<
   | "videoFormat"
   | "recorderType"
   | "cookie"
+  | "douyinCookieMode"
+  | "douyinCookieAccounts"
   | "doubleScreen"
   | "onlyAudio"
   | "useServerTimestamp"

@@ -9,6 +9,23 @@ import { defaultRecordConfig } from "@biliLive-tools/shared/enum.js";
 
 import type { RecorderAPI, ClientRecorder } from "../types/recorder.js";
 import type { Recorder } from "@bililive-tools/manager";
+import type { Recorder as RecorderConfig } from "@biliLive-tools/types";
+
+function normalizeDouyinCookieMode(mode: RecorderConfig["douyinCookieMode"]) {
+  if (!mode) return mode;
+  return mode === "off" ? "off" : "always";
+}
+
+function normalizeDouyinRecorderArgs<T extends { douyinCookieMode?: RecorderConfig["douyinCookieMode"] }>(
+  args: T,
+) {
+  const douyinCookieMode = normalizeDouyinCookieMode(args.douyinCookieMode);
+  if (douyinCookieMode === args.douyinCookieMode) return args;
+  return {
+    ...args,
+    douyinCookieMode,
+  };
+}
 
 // RecorderAPI 的实际实现，这里负责实现对外暴露的接口，并假设 Args 都已经由上一层解析好了
 async function getRecorders(
@@ -150,10 +167,10 @@ async function addRecorder(
 ): Promise<RecorderAPI["addRecorder"]["Resp"]> {
   const recorderManager = container.resolve("recorderManager");
 
-  const config = {
+  const config = normalizeDouyinRecorderArgs({
     id: uuid(),
     ...args,
-  };
+  });
   // @ts-ignore
   const recorder = await recorderManager.addRecorder(config);
   if (recorder == null) throw new Error("不可重复添加");
@@ -164,8 +181,9 @@ async function updateRecorder(
   args: RecorderAPI["updateRecorder"]["Args"],
 ): Promise<RecorderAPI["updateRecorder"]["Resp"]> {
   const recorderManager = container.resolve("recorderManager");
+  const normalizedArgs = normalizeDouyinRecorderArgs(args);
   // @ts-ignore
-  const recorder = await recorderManager.updateRecorder(args);
+  const recorder = await recorderManager.updateRecorder(normalizedArgs);
   if (recorder == null) throw new Error("配置不存在");
 
   return recorderToClient(recorder);
@@ -307,7 +325,7 @@ export function createPagedResultGetter<T>(
 }
 
 export function recorderToClient(recorder: Recorder): ClientRecorder {
-  return {
+  const clientRecorder: ClientRecorder = {
     ...omit(
       recorder,
       "all",
@@ -318,11 +336,26 @@ export function recorderToClient(recorder: Recorder): ClientRecorder {
       "toJSON",
       "getLiveInfo",
       "auth",
+      "cookie",
+      "douyinCookieAccounts",
     ),
     channelURL: recorder.getChannelURL(),
-    recordHandle: recorder.recordHandle && omit(recorder.recordHandle, "stop"),
+    recordHandle: recorder.recordHandle && omit(recorder.recordHandle, "stop", "downloaderArgs"),
     liveInfo: recorder.liveInfo,
   };
+
+  if (recorder.providerId === "DouYin" && clientRecorder.extra?.currentDouyinCookieRemark) {
+    const cookieMode = recorder.douyinCookieMode ?? "always";
+    const shouldApplyCookie = cookieMode !== "off";
+    const shouldShowRemark = recorder.state === "recording" && shouldApplyCookie;
+
+    if (!shouldShowRemark) {
+      const { currentDouyinCookieRemark: _hidden, ...restExtra } = clientRecorder.extra;
+      clientRecorder.extra = restExtra;
+    }
+  }
+
+  return clientRecorder;
 }
 
 export function resolveChannel(url: string) {

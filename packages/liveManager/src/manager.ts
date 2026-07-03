@@ -173,6 +173,7 @@ export interface RecorderManager<
     RecorderAdded: SerializedRecorder<E>;
     RecorderRemoved: SerializedRecorder<E>;
     RecorderDebugLog: DebugLog & { recorder: Recorder<E> };
+    RecorderNotification: { recorder: Recorder<E>; title: string; content: string };
     Updated: ConfigurableProp[];
   }> {
   providers: P[];
@@ -404,6 +405,9 @@ export function createRecorderManager<
       );
       recorder.on("DebugLog", (log) =>
         this.emit("RecorderDebugLog", { recorder: recorder, ...log }),
+      );
+      recorder.on("Notification", (notification) =>
+        this.emit("RecorderNotification", { recorder, ...notification }),
       );
       recorder.on("RecordStop", ({ recordHandle, reason }) => {
         recorder.appendTimeline?.({
