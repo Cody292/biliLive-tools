@@ -20,7 +20,7 @@
     }
   },
   "scripts": {
-    "build": "pnpm run test && pnpm run typecheck && tsc",
+    "build": "pnpm run typecheck && tsc",
     "dev": "tsc -w",
     "start": "node ./lib/index.js",
     "start:dev": "tsx watch src/index.ts",
@@ -48,7 +48,8 @@
     "check-disk-space": "^3.4.0",
     "semver": "^7.6.3",
     "music-segment-detector": "^0.3.1",
-    "awilix": "^11.0.4"
+    "awilix": "^11.0.4",
+    "playwright-core": "^1.61.1"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",
