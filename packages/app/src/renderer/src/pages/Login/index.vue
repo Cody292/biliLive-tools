@@ -48,7 +48,9 @@ import { commonApi } from "@renderer/apis";
 
 const notice = useNotification();
 const router = useRouter();
-const api = ref("");
+const isFullstack = ref(window.isFullstack);
+const fullstackAPI = `${window.location.origin}/api`;
+const api = ref(isFullstack.value ? fullstackAPI : "");
 const key = ref("");
 
 const login = async () => {
@@ -105,9 +107,10 @@ const test = async () => {
 
 // const apiStorage = window.localStorage.getItem("api");
 // const keyStorage = window.localStorage.getItem("key");
-api.value = import.meta.env.VITE_DEFAULT_SERVER || "http://127.0.0.1:18010";
+api.value = isFullstack.value
+  ? fullstackAPI
+  : import.meta.env.VITE_DEFAULT_SERVER || "http://127.0.0.1:18010";
 // key.value = keyStorage || "";
-const isFullstack = ref(window.isFullstack);
 if (window.localStorage.getItem("api")) {
   window.localStorage.removeItem("api");
   window.location.reload();

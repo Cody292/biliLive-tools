@@ -529,9 +529,14 @@
               <Tip text="账号池" tip="维护多个抖音Cookie账号，启用项会参与运行时选择"></Tip>
             </template>
             <div style="display: flex; width: 100%; flex-direction: column; gap: 10px">
-              <n-button type="primary" ghost style="width: fit-content" @click="addGlobalDouyinAccount"
-                >新增账号</n-button
-              >
+              <div style="display: flex; gap: 10px">
+                <n-button type="primary" ghost style="width: fit-content" @click="addGlobalDouyinAccount"
+                  >新增账号</n-button
+                >
+                <n-button type="primary" style="width: fit-content" @click="handleDouyinScanLogin"
+                  >扫码登录</n-button
+                >
+              </div>
               <div
                 v-for="account in globalDouyinAccountsSorted"
                 :key="account.id"
@@ -693,6 +698,7 @@
         </n-tab-pane>
       </n-tabs>
     </n-form>
+    <DouyinLoginDialog v-model="showDouyinLoginDialog" @success="handleDouyinLoginSuccess" />
   </div>
 </template>
 
@@ -702,6 +708,8 @@ import { templateRef } from "@vueuse/core";
 import { showDirectoryDialog } from "@renderer/utils/fileSystem";
 import { useUserInfoStore } from "@renderer/stores";
 import { useConfirm } from "@renderer/hooks";
+import { douyinApi } from "@renderer/apis";
+import DouyinLoginDialog from "./components/DouyinLoginDialog.vue";
 import {
   // qualityOptions,
   biliQualityOptions,
@@ -723,12 +731,23 @@ import {
   douyuStreamCodecOptions,
   douyuApiTypeOptions,
 } from "@renderer/enums/recorder";
+import {
+  createDouyinCookieAccount,
+  createDouyinScanLoginRemark,
+  findDouyinAccountIndexByApiKey,
+  pickDouyinAccountRemark,
+  resolveDouyinApiAccountKey,
+  resolveDouyinCookieStableIdentity,
+} from "./douyinAccounts";
 
-import type { AppConfig, DouyinCookieAccount } from "@biliLive-tools/types";
+import type { AppConfig } from "@biliLive-tools/types";
 
 const config = defineModel<AppConfig>("data", {
   default: () => {},
 });
+const emit = defineEmits<{
+  requestSave: [];
+}>();
 
 const ensureGlobalDouyinCookieConfig = () => {
   if (!config.value?.recorder?.douyin) {
@@ -739,14 +758,6 @@ const ensureGlobalDouyinCookieConfig = () => {
     config.value.recorder.douyin.accounts = [];
   }
 };
-
-const createDouyinCookieAccount = (): DouyinCookieAccount => ({
-  id: `dy-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-  remark: "",
-  cookie: "",
-  enabled: true,
-  weight: 1,
-});
 
 const addGlobalDouyinAccount = () => {
   ensureGlobalDouyinCookieConfig();
@@ -927,6 +938,103 @@ const xhsLogin = async () => {
   config.value.recorder.xhs.cookie = cookie;
 };
 
+const showDouyinLoginDialog = ref(false);
+const handleDouyinScanLogin = async () => {
+  const status = await confirmCookieLoginRisk(
+    "抖音",
+    "抖音扫码登录后将会将Cookie自动填入账号池，请确保是个人常用或备用小号。",
+  );
+  if (status) {
+    showDouyinLoginDialog.value = true;
+  }
+};
+
+const handleDouyinLoginSuccess = (cookie: string) => {
+  ensureGlobalDouyinCookieConfig();
+  const accounts = config.value.recorder.douyin.accounts;
+  const stableIdentity = resolveDouyinCookieStableIdentity(cookie);
+  const existingByCookie =
+    stableIdentity !== ""
+      ? accounts.find((account) => resolveDouyinCookieStableIdentity(account.cookie) === stableIdentity)
+      : undefined;
+  const targetAccount = existingByCookie ?? createDouyinCookieAccount();
+  const fallbackRemark =
+    targetAccount.remark.trim() !== "" ? targetAccount.remark : createDouyinScanLoginRemark();
+  targetAccount.cookie = cookie;
+  targetAccount.remark = fallbackRemark;
+  if (existingByCookie === undefined) {
+    accounts.push(targetAccount);
+  }
+  emit("requestSave");
+
+  void (async () => {
+    try {
+      const identity = await douyinApi.getAccountIdentity(cookie);
+      const apiKey = resolveDouyinApiAccountKey(identity);
+      if (apiKey !== "") {
+        targetAccount.accountUid = apiKey;
+      }
+
+      let matchIdx = -1;
+      if (apiKey !== "") {
+        matchIdx = findDouyinAccountIndexByApiKey(accounts, apiKey);
+        if (matchIdx < 0) {
+          for (let ai = 0; ai < accounts.length; ai++) {
+            const account = accounts[ai];
+            if (account === targetAccount) continue;
+            if ((account.accountUid ?? "").trim() !== "") continue;
+            try {
+              const otherIdentity = await douyinApi.getAccountIdentity(account.cookie);
+              const otherKey = resolveDouyinApiAccountKey(otherIdentity);
+              if (otherKey !== "") {
+                account.accountUid = otherKey;
+              }
+              if (otherKey !== "" && otherKey === apiKey) {
+                matchIdx = ai;
+                break;
+              }
+            } catch {
+              // 单条旧账号 identity 探测失败时跳过，继续其它账号
+            }
+          }
+        }
+      }
+      if (matchIdx < 0 && stableIdentity !== "") {
+        matchIdx = accounts.findIndex(
+          (account) => resolveDouyinCookieStableIdentity(account.cookie) === stableIdentity,
+        );
+      }
+      if (matchIdx < 0) {
+        matchIdx = accounts.findIndex(
+          (account) => account === targetAccount || account.id === targetAccount.id,
+        );
+      }
+      if (matchIdx < 0) {
+        return;
+      }
+
+      const kept = accounts[matchIdx];
+      const baseRemark = kept.remark.trim() !== "" ? kept.remark : fallbackRemark;
+      const enrichedRemark = pickDouyinAccountRemark(identity, baseRemark);
+      kept.cookie = cookie;
+      kept.remark = enrichedRemark;
+      if (apiKey !== "") {
+        kept.accountUid = apiKey;
+      }
+      if (kept !== targetAccount) {
+        const targetIdx = accounts.findIndex(
+          (account) => account === targetAccount || account.id === targetAccount.id,
+        );
+        if (targetIdx >= 0 && targetIdx !== matchIdx) {
+          accounts.splice(targetIdx, 1);
+        }
+      }
+      emit("requestSave");
+    } catch {
+      // identity 失败不影响已完成的 Cookie 入池
+    }
+  })();
+};
 </script>
 
 <style scoped lang="less">

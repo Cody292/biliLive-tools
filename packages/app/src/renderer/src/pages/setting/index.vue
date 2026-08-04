@@ -390,7 +390,7 @@
           <BiliSetting v-model:data="config"></BiliSetting>
         </n-tab-pane>
         <n-tab-pane name="recorder" tab="直播录制">
-          <RecordSetting v-model:data="config"></RecordSetting>
+          <RecordSetting v-model:data="config" @request-save="persistConfig"></RecordSetting>
         </n-tab-pane>
         <n-tab-pane name="virtualRecord" tab="虚拟录制">
           <VirtualRecordSetting v-model:data="config"></VirtualRecordSetting>
@@ -507,6 +507,13 @@ const logLevelOptions = ref<{ label: string; value: any }[]>([
 
 const confirm = useConfirm();
 const { setTheme } = useThemeStore();
+const persistConfig = async () => {
+  await configApi.save(deepRaw(config.value));
+  setTheme(config.value.theme);
+  window?.api?.common?.setOpenAtLogin(config.value.autoLaunch || false);
+  appConfigStore.getAppConfig();
+};
+
 const saveConfig = async () => {
   if (
     !isWeb.value &&
@@ -532,12 +539,8 @@ const saveConfig = async () => {
     return;
   }
 
-  await configApi.save(deepRaw(config.value));
-  setTheme(config.value.theme);
-  // 设置自动启动
-  window?.api?.common?.setOpenAtLogin(config.value.autoLaunch || false);
+  await persistConfig();
   close();
-  appConfigStore.getAppConfig();
 };
 
 const close = () => {
