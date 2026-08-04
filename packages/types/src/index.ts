@@ -87,6 +87,8 @@ export interface DouyinCookieAccount {
   cookie: string;
   enabled: boolean;
   weight: number;
+  /** 抖音 profile user_id，扫码入池后用于同账号 cookie 更新去重 */
+  accountUid?: string;
 }
 
 // 通用预设
