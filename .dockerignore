@@ -1,5 +1,56 @@
+# 依赖与构建产物（镜像内 pnpm install / 构建）
 node_modules
+**/node_modules
 npm-debug.log
+**/dist
+**/out
+**/lib
+**/.turbo
+**/.vite
+**/coverage
+
+# VCS / IDE
+.git
+.gitignore
+.idea
+.vscode
+*.swp
+
+# 本地数据与探针（不进镜像，避免 COPY 层抖动与体积膨胀）
+_scratch_douyin_sso
+planning-with-files
+data
+.browser-memory
+.omo
+.lean-ctx
+.codegraph
+
+# 文档：保留构建所需 md（CHANGELOG / README），排除其余
+*.md
+!README.md
+!CHANGELOG.md
+!**/README.md
+!**/CHANGELOG.md
+
+# Docker 自身
 Dockerfile
 .dockerignore
-.git
+docker-compose*.yml
+
+# 杂项
+**/*.log
+**/.DS_Store
+tmp
+temp
+*.zip
+*.tar.gz
+
+# 本地截图/图片噪声（缩小构建上下文，避免 COPY 层抖动）
+image-*.png
+*-screenshot*.png
+screenshot*.png
+*.screenshots/
+**/image-*.png
+**/*-screenshot*.png
+**/screenshot*.png
+**/*.screenshots/
