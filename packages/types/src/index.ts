@@ -86,9 +86,18 @@ export interface DouyinCookieAccount {
   remark: string;
   cookie: string;
   enabled: boolean;
-  weight: number;
+  /**
+   * 账号选择权重；留空/null 表示 UI「随机」（运行时按权重 1 参与加权选择）。
+   * 扫码新建默认 null；同用户更新 cookie 时必须沿用已有 weight，不得覆盖。
+   */
+  weight: number | null;
   /** 抖音 profile user_id，扫码入池后用于同账号 cookie 更新去重 */
   accountUid?: string;
+  /**
+   * 扫码登录写入/刷新的展示时间，格式如 `2026.8.5 00:00`。
+   * 仅扫码成功路径维护；历史账号可缺省（UI 不显示）。
+   */
+  updatedAt?: string;
 }
 
 // 通用预设

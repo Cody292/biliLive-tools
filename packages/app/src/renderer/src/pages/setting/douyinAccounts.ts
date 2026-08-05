@@ -18,7 +18,8 @@ export const createDouyinCookieAccount = (): DouyinCookieAccount => ({
   remark: "",
   cookie: "",
   enabled: true,
-  weight: 1,
+  // 留空 = UI「随机」；运行时 normalize 为权重 1 参与选择
+  weight: null,
 });
 
 export const createDouyinScanLoginRemark = (date: Date = new Date()): string => {
@@ -26,6 +27,16 @@ export const createDouyinScanLoginRemark = (date: Date = new Date()): string => 
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `扫码导入-${year}-${month}-${day}`;
+};
+
+/** 账号池用户名左侧展示用；月日不补零，时分补零，如 2026.8.5 00:00 */
+export const formatDouyinAccountUpdatedAt = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}.${month}.${day} ${hour}:${minute}`;
 };
 
 const pickText = (value: string | undefined): string => {

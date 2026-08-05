@@ -7,6 +7,7 @@ import {
   createDouyinCookieAccount,
   createDouyinScanLoginRemark,
   findDouyinAccountIndexByApiKey,
+  formatDouyinAccountUpdatedAt,
   pickDouyinAccountRemark,
   resolveDouyinApiAccountKey,
   resolveDouyinCookieStableIdentity,
@@ -35,14 +36,20 @@ describe("Douyin QR login helpers", () => {
     expect(account.id).toMatch(/^dy-\d+-\d+$/);
     expect(account.cookie).toBe("");
     expect(account.enabled).toBe(true);
-    expect(account.weight).toBe(1);
+    expect(account.weight).toBeNull();
     expect(account.remark).toBe("");
+    expect(account.updatedAt).toBeUndefined();
   });
 
   it("formats scan login remarks with a stable date", () => {
     const remark = createDouyinScanLoginRemark(new Date("2026-07-10T12:00:00+08:00"));
 
     expect(remark).toBe("扫码导入-2026-07-10");
+  });
+
+  it("formats account updatedAt as Y.M.D HH:mm without zero-padding month/day", () => {
+    const stamp = formatDouyinAccountUpdatedAt(new Date("2026-08-05T00:00:00+08:00"));
+    expect(stamp).toBe("2026.8.5 00:00");
   });
 
   it("prefers nickname, then uid, then sec_user_id for scan login account remarks", () => {
@@ -80,7 +87,7 @@ describe("Douyin QR login helpers", () => {
     const settingSource = readFileSync(new URL("../index.vue", import.meta.url), "utf8");
     const successStart = recordSettingSource.indexOf("const handleDouyinLoginSuccess");
     expect(successStart).toBeGreaterThan(-1);
-    const successBody = recordSettingSource.slice(successStart, successStart + 4200);
+    const successBody = recordSettingSource.slice(successStart, successStart + 4500);
 
     expect(recordSettingSource).toContain("requestSave: []");
     expect(successBody).toMatch(/accounts\.push\(targetAccount\)[\s\S]{0,260}emit\("requestSave"\)/);
@@ -91,6 +98,13 @@ describe("Douyin QR login helpers", () => {
     expect(successBody).toMatch(/kept\.cookie\s*=\s*cookie/);
     expect(successBody).toMatch(/accounts\.splice\(targetIdx,\s*1\)/);
     expect(successBody).toMatch(/emit\("requestSave"\)/g);
+    expect(successBody).toContain("formatDouyinAccountUpdatedAt");
+    expect(successBody).toMatch(/targetAccount\.updatedAt\s*=\s*formatDouyinAccountUpdatedAt\(\)/);
+    expect(successBody).toMatch(/kept\.updatedAt\s*=\s*formatDouyinAccountUpdatedAt\(\)/);
+    expect(successBody).not.toMatch(/kept\.weight\s*=/);
+    expect(successBody).not.toMatch(/targetAccount\.weight\s*=/);
+    expect(recordSettingSource).toContain("v-if=\"account.updatedAt\"");
+    expect(recordSettingSource).toContain("{{ account.updatedAt }}");
     expect(settingSource).toContain('@request-save="persistConfig"');
     expect(settingSource).toMatch(/const persistConfig = async \(\) => \{[\s\S]{0,260}configApi\.save\(deepRaw\(config\.value\)\)/);
     expect(settingSource).toMatch(/const saveConfig = async \(\) => \{[\s\S]{0,700}await persistConfig\(\)[\s\S]{0,120}close\(\)/);

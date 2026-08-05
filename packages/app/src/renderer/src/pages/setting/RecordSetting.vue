@@ -542,6 +542,18 @@
                 :key="account.id"
                 style="display: flex; gap: 10px; align-items: center"
               >
+                <span
+                  v-if="account.updatedAt"
+                  style="
+                    font-size: 12px;
+                    color: rgba(0, 0, 0, 0.45);
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                    line-height: 1.2;
+                    min-width: 92px;
+                  "
+                  >{{ account.updatedAt }}</span
+                >
                 <n-input
                   v-model:value="account.remark"
                   placeholder="备注（如主号/备号）"
@@ -735,6 +747,7 @@ import {
   createDouyinCookieAccount,
   createDouyinScanLoginRemark,
   findDouyinAccountIndexByApiKey,
+  formatDouyinAccountUpdatedAt,
   pickDouyinAccountRemark,
   resolveDouyinApiAccountKey,
   resolveDouyinCookieStableIdentity,
@@ -957,11 +970,13 @@ const handleDouyinLoginSuccess = (cookie: string) => {
     stableIdentity !== ""
       ? accounts.find((account) => resolveDouyinCookieStableIdentity(account.cookie) === stableIdentity)
       : undefined;
+  // 新建：weight 保持 null（随机）；同用户：沿用 existingByCookie.weight，不覆盖
   const targetAccount = existingByCookie ?? createDouyinCookieAccount();
   const fallbackRemark =
     targetAccount.remark.trim() !== "" ? targetAccount.remark : createDouyinScanLoginRemark();
   targetAccount.cookie = cookie;
   targetAccount.remark = fallbackRemark;
+  targetAccount.updatedAt = formatDouyinAccountUpdatedAt();
   if (existingByCookie === undefined) {
     accounts.push(targetAccount);
   }
@@ -1018,6 +1033,8 @@ const handleDouyinLoginSuccess = (cookie: string) => {
       const enrichedRemark = pickDouyinAccountRemark(identity, baseRemark);
       kept.cookie = cookie;
       kept.remark = enrichedRemark;
+      // 同用户合并：刷新日期；保留 kept.weight，不覆盖为 null/随机/1
+      kept.updatedAt = formatDouyinAccountUpdatedAt();
       if (apiKey !== "") {
         kept.accountUid = apiKey;
       }
