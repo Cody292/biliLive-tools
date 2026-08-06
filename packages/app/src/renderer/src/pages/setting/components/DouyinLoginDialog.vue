@@ -472,11 +472,13 @@ const submitSmsCode = async () => {
 };
 
 const startLoginPolling = () => {
+  let pollInFlight = false;
   interval.value = setInterval(async () => {
     const currentId = id.value;
-    if (!currentId) {
+    if (!currentId || pollInFlight) {
       return;
     }
+    pollInFlight = true;
     try {
       const result = await douyinApi.loginPoll(currentId);
       if (!showModal.value || interval.value === null || id.value !== currentId) {
@@ -488,6 +490,8 @@ const startLoginPolling = () => {
         return;
       }
       handleLoginError(error, "登录轮询失败");
+    } finally {
+      pollInFlight = false;
     }
   }, 2000);
 };

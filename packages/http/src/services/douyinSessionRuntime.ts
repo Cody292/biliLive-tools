@@ -1458,6 +1458,23 @@ export async function createDouyinSessionRuntime(
     const checkStartedAt = Date.now();
     const checkURL = buildSessionCheckURL(token);
 
+    if (lastCheckStatus !== undefined && lastCheckStatus.kind !== "waiting") {
+      const ageMs = Date.now() - lastCheckAt;
+      if (ageMs < 15_000) {
+        phaseLog("check_status", checkStartedAt, {
+          via: "network_cache_first",
+          kind: lastCheckStatus.kind,
+          ok: true,
+          ageMs,
+          marker: "hotfix_cache_first_C_v1",
+        });
+        if (lastCheckStatus.kind === "need_app_verify") {
+          await ensureOfficialSendCode();
+        }
+        return lastCheckStatus;
+      }
+    }
+
     // 1) 页内 fetch（同会话 cookie；失败不抛，交给缓存 / Node 回退）
     try {
       const result = await Promise.race([

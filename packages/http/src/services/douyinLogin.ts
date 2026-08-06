@@ -472,6 +472,10 @@ function createPollFailureDiagnostic(cause: Error): DouyinLoginDiagnosticError {
   );
 }
 
+function isClosedRuntimeError(error: unknown): boolean {
+  return error instanceof Error && /(?:target|page|context|browser)[^\n]*(?:closed|has been closed)/i.test(error.message);
+}
+
 class PlaywrightDouyinLoginContext implements DouyinLoginContext {
   private page: CDPPage | undefined;
   private qrCodeImage: CDPElementHandle | undefined;
@@ -1936,6 +1940,17 @@ export class DouyinLoginService {
         this.sessions.set(session.id, next);
         return toWaitingResult(next);
       } catch (error) {
+        const completed = this.completedResults.get(session.id);
+        if (completed !== undefined && completed.expiresAt > this.now()) {
+          return completed.result;
+        }
+        if (completed !== undefined) {
+          this.completedResults.delete(session.id);
+        }
+        if (isClosedRuntimeError(error)) {
+          this.sessions.delete(session.id);
+          return { status: "not_found" };
+        }
         this.sessions.set(session.id, session);
         if (error instanceof DouyinLoginDiagnosticError) {
           throw error;
