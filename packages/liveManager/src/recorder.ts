@@ -16,7 +16,7 @@ interface DouyinCookieAccount {
   remark?: string;
   cookie?: string;
   enabled?: boolean;
-  weight?: number;
+  weight?: number | null;
 }
 
 export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {

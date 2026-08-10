@@ -520,8 +520,7 @@ const handleRefreshQRCode = async () => {
       // ignore
     }
   }
-  // r9c：重新获取 = 先 cancel 旧会话再冷却，强制服务端新浏览器
-  await new Promise<void>((r) => setTimeout(r, 2_500));
+  // r7：取消旧会话后立刻重新获取，去掉 2.5s 前端硬等
   try {
     text.value = "获取二维码中...";
     const res = await douyinApi.qrcode();

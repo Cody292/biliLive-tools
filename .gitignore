@@ -35,3 +35,4 @@ packages/http/src/services/douyinLogin.test.ts
 packages/http/src/services/douyinSessionRuntime.test.ts
 packages/shared/test/scripts/
 scripts/install-bin.test.js
+packages/http/test/douyinLogin.test.ts

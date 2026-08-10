@@ -8,7 +8,8 @@
  */
 
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { extractQRCode, extractQRCodeStatus, type DouyinQRCodeStatus } from "./douyinQRCode.js";
@@ -604,6 +605,27 @@ export async function createDouyinSessionRuntime(
       // ignore
     }
     phaseLog("browser_close", closeStartedAt, { ok: true });
+    // r8-session-gc：关闭后扫尾 /tmp 下超时 Playwright/Chromium 残留目录
+    try {
+      const tmp = tmpdir();
+      for (const name of readdirSync(tmp)) {
+        if (!/^(playwright|org\.chromium)/i.test(name)) {
+          continue;
+        }
+        const full = join(tmp, name);
+        try {
+          const st = statSync(full);
+          if (Date.now() - st.mtimeMs > 10 * 60 * 1000) {
+            rmSync(full, { recursive: true, force: true });
+          }
+        } catch {
+          // ignore single entry
+        }
+      }
+      phaseLog("tmp_gc", closeStartedAt, { ok: true, hotpatch: "r8-session-gc" });
+    } catch {
+      // ignore tmp_gc failures
+    }
   };
 
   const acquireQR = async (): Promise<SessionAcquireResult> => {

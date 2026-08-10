@@ -1353,12 +1353,10 @@ export class DouyinLoginService {
   private readonly createSessionRuntime: () => Promise<SessionRuntimeHandle>;
   private readonly sessions = new Map<string, LoginSession>();
   private readonly completedResults = new Map<string, CompletedLoginCacheEntry>();
+  /** Wave3：同 session 并发 poll 合并为单次运行中的 promise */
+  private readonly pollInFlight = new Map<string, Promise<LoginPollResult>>();
   private activeRuntime: SessionRuntimeHandle | undefined;
   private startLock: Promise<void> = Promise.resolve();
-  /** r9c：跨 start / cancel 冷却时钟（重新获取 = 新浏览器） */
-  private lastStartAt = 0;
-  /** browser_timeout 后影响「下一次 start」的冷却截止（不在本请求内 sleep 60s） */
-  private cooldownUntil = 0;
 
   constructor(options: DouyinLoginServiceOptions = {}) {
     this.cdpEndpoint =
@@ -1392,24 +1390,10 @@ export class DouyinLoginService {
     if (this.enableSessionRuntime) {
       let runtime: SessionRuntimeHandle | undefined;
       try {
-        // WAVE/R6：每次 start=新浏览器；跨请求冷却；禁止请求内二次出码（attempt<=1）
-        // 跨请求 minGap 8s；browser_timeout 冷却 15s；外层默认 40s
+        // WAVE/R6：每次 start=新浏览器；禁止请求内二次出码（attempt<=1）
+        // r7-nocooldown：去掉 minGap/cooldownUntil 硬等与失败冷却，失败立刻返回由用户重试
         const acquireOuterMs =
           this.browserLoginTimeoutMs > 0 ? this.browserLoginTimeoutMs : 40_000;
-        // 跨 start 冷却：minGap 8s 与 cooldownUntil 取更晚
-        const now0 = this.now();
-        const minGapMs = 8_000;
-        const gapTarget = this.lastStartAt > 0 ? this.lastStartAt + minGapMs : 0;
-        const waitUntil = Math.max(gapTarget, this.cooldownUntil);
-        if (waitUntil > now0) {
-          const waitMs = waitUntil - now0;
-          console.info(
-            `[douyin-login] ${JSON.stringify({ phase: "start_cooldown", waitMs, hotpatch: "r6" })}`,
-          );
-          await new Promise<void>((r) => setTimeout(r, waitMs));
-        }
-        // wait 前用 now0 算 gap；wait 后更新 lastStartAt（本次实际开始）
-        this.lastStartAt = this.now();
         let lastError: unknown;
         // WAVE/R6：attempt 循环 <= 1，禁止请求内二次出码
         for (let attempt = 1; attempt <= 1; attempt++) {
@@ -1443,11 +1427,10 @@ export class DouyinLoginService {
               `[douyin-login] ${JSON.stringify({
                 phase: "start_ok",
                 attempt,
-                hotpatch: "r6",
+                hotpatch: "r7-nocooldown",
                 sessionId: id,
               })}`,
             );
-            this.lastStartAt = this.now();
             return toWaitingResult(session);
           } catch (error) {
             lastError = error;
@@ -1461,35 +1444,17 @@ export class DouyinLoginService {
               `[douyin-login] ${JSON.stringify({
                 phase: "start_attempt_fail",
                 attempt,
-                hotpatch: "r6",
+                hotpatch: "r7-nocooldown",
                 code,
                 message: error instanceof Error ? error.message.slice(0, 120) : String(error),
               })}`,
             );
-            // WAVE/R6：browser_timeout 冷却 15s，影响下一次 start
-            if (
-              code === "browser_timeout" ||
-              (error instanceof Error &&
-                (error.message.includes("同会话出码超时") ||
-                  error.message.includes("browser_timeout")))
-            ) {
-              this.cooldownUntil = this.now() + 15_000;
-              console.info(
-                `[douyin-login] ${JSON.stringify({
-                  phase: "timeout_backoff",
-                  waitMs: 15_000,
-                  hotpatch: "r6",
-                  attempt,
-                  defer: "next_start",
-                })}`,
-              );
-            }
+            // r7：browser_timeout 不再写 cooldownUntil，立即向上抛出供 UI 展示
             await runtime.close().catch(() => undefined);
             if (this.activeRuntime === runtime) {
               this.activeRuntime = undefined;
             }
             runtime = undefined;
-            this.lastStartAt = this.now();
             break;
           }
         }
@@ -1747,6 +1712,21 @@ export class DouyinLoginService {
   }
 
   async poll(id: string): Promise<LoginPollResult> {
+    const inFlight = this.pollInFlight.get(id);
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+    const operation = this.pollOnce(id);
+    const promise = operation.finally(() => {
+      if (this.pollInFlight.get(id) === promise) {
+        this.pollInFlight.delete(id);
+      }
+    });
+    this.pollInFlight.set(id, promise);
+    return promise;
+  }
+
+  private async pollOnce(id: string): Promise<LoginPollResult> {
     const session = this.sessions.get(id);
     if (session === undefined) {
       const completed = this.completedResults.get(id);
@@ -1852,6 +1832,26 @@ export class DouyinLoginService {
   }
 
   private async pollSessionRuntime(session: SessionLoginSession): Promise<LoginPollResult> {
+    try {
+      return await this.pollSessionRuntimeBody(session);
+    } catch (error) {
+      // Wave4：顶层 closed-runtime → Cache-First，否则清理死会话并 not_found
+      if (!isClosedRuntimeError(error)) {
+        throw error;
+      }
+      const completed = this.completedResults.get(session.id);
+      if (completed !== undefined && completed.expiresAt > this.now()) {
+        return completed.result;
+      }
+      if (completed !== undefined) {
+        this.completedResults.delete(session.id);
+      }
+      await this.removeSession(session);
+      return { status: "not_found" };
+    }
+  }
+
+  private async pollSessionRuntimeBody(session: SessionLoginSession): Promise<LoginPollResult> {
     let qrStatus = await session.runtime.checkStatus(session.token);
     if (qrStatus === undefined) {
       // Node 回退：注入浏览器会话 cookie（ttwid 等），避免独立 jar 无态 check 永远 waiting
@@ -1879,8 +1879,11 @@ export class DouyinLoginService {
             return completed;
           }
         }
-      } catch {
-        // ignore cookie seed failures
+      } catch (error) {
+        // closed-runtime 交由顶层终端处理；其余 cookie 播种失败仍忽略
+        if (isClosedRuntimeError(error)) {
+          throw error;
+        }
       }
       qrStatus = await checkDouyinQRCodeStatus(session.token);
       if (session.lastStatus === "need_app_verify" && (qrStatus === undefined || qrStatus.kind === "waiting")) {
@@ -1940,16 +1943,16 @@ export class DouyinLoginService {
         this.sessions.set(session.id, next);
         return toWaitingResult(next);
       } catch (error) {
+        if (isClosedRuntimeError(error)) {
+          // 交由 pollSessionRuntime 顶层 Cache-First / 清理死会话
+          throw error;
+        }
         const completed = this.completedResults.get(session.id);
         if (completed !== undefined && completed.expiresAt > this.now()) {
           return completed.result;
         }
         if (completed !== undefined) {
           this.completedResults.delete(session.id);
-        }
-        if (isClosedRuntimeError(error)) {
-          this.sessions.delete(session.id);
-          return { status: "not_found" };
         }
         this.sessions.set(session.id, session);
         if (error instanceof DouyinLoginDiagnosticError) {
@@ -1996,7 +1999,9 @@ export class DouyinLoginService {
       expiresAt: this.now() + 60_000,
     });
     setTimeout(() => this.completedResults.delete(probe.session.id), 60_000).unref?.();
-    void this.removeSession(probe.session).catch(() => undefined);
+    // r8-session-gc：登录成功后同步回收 browser/runtime，避免 fire-and-forget 竞态
+    await this.removeSession(probe.session).catch(() => undefined);
+    await this.closeActiveRuntime().catch(() => undefined);
     return completedResult;
   }
 
@@ -2104,11 +2109,10 @@ export class DouyinLoginService {
 
 
   async cancel(id: string): Promise<LoginCancelResult> {
-    // r9c：任何 cancel 都强制关掉 activeRuntime（含 not_found），并刷新冷却时钟
+    // r9c：任何 cancel 都强制关掉 activeRuntime（含 not_found）
     const session = this.sessions.get(id);
     if (session === undefined) {
       await this.closeActiveRuntime();
-      this.lastStartAt = this.now();
       console.info(
         `[douyin-login] ${JSON.stringify({
           phase: "cancel_force_close",
@@ -2121,7 +2125,6 @@ export class DouyinLoginService {
     }
     await this.removeSession(session);
     await this.closeActiveRuntime();
-    this.lastStartAt = this.now();
     console.info(
       `[douyin-login] ${JSON.stringify({
         phase: "cancel_force_close",
