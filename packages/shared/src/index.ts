@@ -148,3 +148,23 @@ const checkDiskSpaceLoop = async () => {
 };
 
 export { init, AppConfig, appConfig, TaskQueue, migrate, container };
+export {
+  DEBOUNCE_MS,
+  DEFAULT_ACCOUNTS_PATH,
+  scheduleHealthAccountPatch,
+  checkAndNotifyHealthEdge,
+  flushHealthPersist,
+  bindHealthPersistHost,
+  type HealthPersistHost,
+  type ScheduleHealthAccountPatchInput,
+} from "./douyinHealthPersist.js";
+export {
+  applyHealthPatch,
+  normalizeHealthStatus,
+  isQuarantinedAccount,
+  shouldProbeAccount,
+  createAuthFailCounter,
+  CHECK_WINDOW_MS,
+  AUTH_FAIL_THRESHOLD,
+  type DouyinAccountHealthPatch,
+} from "./douyinAccountHealth.js";

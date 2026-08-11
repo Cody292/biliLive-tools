@@ -6,6 +6,11 @@ import { defaultsDeep, get, cloneDeep } from "lodash-es";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { APP_DEFAULT_CONFIG } from "./enum.js";
 import log from "./utils/log.js";
+import {
+  bindHealthPersistHost,
+  flushHealthPersist,
+  scheduleHealthAccountPatch,
+} from "./douyinHealthPersist.js";
 
 import type { AppConfig as AppConfigType, DeepPartial } from "@biliLive-tools/types";
 
@@ -80,10 +85,43 @@ export class AppConfig extends Config {
   declare data: AppConfigType;
   constructor(configPath?: string) {
     super();
+    this.bindHealthPersist();
     if (configPath) {
       this.load(configPath);
     }
   }
+
+  private bindHealthPersist() {
+    bindHealthPersistHost({
+      getData: () => this.data as unknown as Record<string, unknown>,
+      save: () => {
+        // 必须 super.save：AppConfig.set/get 会 flush，直接 this.save 会死循环
+        super.save();
+      },
+    });
+    // DouYinRecorder 探针 A → 防抖写盘（避免 DouYinRecorder 静态依赖 shared 包循环）
+    // 探针 B setDouyinProbeOnce 在 http serverStart 注入（shared 不能依赖 http）
+    void import("@bililive-tools/douyin-recorder")
+      .then((mod) => {
+        const setScheduler = (
+          mod as {
+            setDouyinHealthPatchScheduler?: (
+              fn: ((input: { accountId: string; patch: unknown }) => void) | null,
+            ) => void;
+          }
+        ).setDouyinHealthPatchScheduler;
+        setScheduler?.((input) => {
+          scheduleHealthAccountPatch({
+            accountId: input.accountId,
+            patch: input.patch as Parameters<typeof scheduleHealthAccountPatch>[0]["patch"],
+          });
+        });
+      })
+      .catch(() => {
+        // best-effort：未装 recorder 时跳过
+      });
+  }
+
   load(filepath: string) {
     this.init(filepath);
   }
@@ -108,6 +146,7 @@ export class AppConfig extends Config {
     super.init(filepath, initData);
   }
   get<K extends keyof AppConfigType>(key: K): AppConfigType[K] {
+    flushHealthPersist();
     return super.get(key);
   }
   // 使用lodash的get方法，保留type
@@ -115,12 +154,15 @@ export class AppConfig extends Config {
     return get(this.data, path);
   }
   set<K extends keyof AppConfigType>(key: K, value: AppConfigType[K]) {
+    flushHealthPersist();
     return super.set(key, value);
   }
   setAll(newConfig: AppConfigType) {
+    flushHealthPersist();
     return super.setAll(newConfig);
   }
   getAll() {
+    flushHealthPersist();
     const data = this.read() as AppConfigType;
     return data;
   }

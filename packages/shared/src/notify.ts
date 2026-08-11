@@ -279,7 +279,7 @@ export async function sendByCustomHttp(
 }
 
 export function send(title: string, desp: string, options?: NotificationSendOptions) {
-  const config = appConfig.getAll();
+  const config = appConfig.data ?? appConfig.getAll();
   let notifyType = config?.notification?.setting?.type;
 
   if (options?.type) {
