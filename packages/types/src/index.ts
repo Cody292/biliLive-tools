@@ -81,6 +81,14 @@ export const recorderNoGlobalFollowFields: Array<
 
 export type DouyinCookieMode = "off" | "always" | "gift_save_only" | "only-save-gift";
 
+/** 抖音 Cookie 账号健康状态（Schema B） */
+export type DouyinAccountHealthStatus =
+  | "healthy"
+  | "expiring"
+  | "invalid"
+  | "relogin_required"
+  | "unknown";
+
 export interface DouyinCookieAccount {
   id: string;
   remark: string;
@@ -98,6 +106,12 @@ export interface DouyinCookieAccount {
    * 仅扫码成功路径维护；历史账号可缺省（UI 不显示）。
    */
   updatedAt?: string;
+  /** 健康状态；缺省/历史账号视为 unknown */
+  healthStatus?: DouyinAccountHealthStatus;
+  /** 最近一次健康检查时间（ms epoch） */
+  healthCheckedAt?: number;
+  /** 健康判定原因（可展示/日志用，禁止含 cookie） */
+  healthReason?: string;
 }
 
 // 通用预设
