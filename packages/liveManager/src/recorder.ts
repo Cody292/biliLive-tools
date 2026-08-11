@@ -11,12 +11,25 @@ type FormatName = "auto" | "flv" | "hls" | "fmp4" | "flv_only" | "hls_only" | "f
 type CodecName = "auto" | "avc" | "hevc" | "avc_only" | "hevc_only";
 type DouyinCookieMode = "off" | "always" | "gift_save_only" | "only-save-gift";
 
+type DouyinAccountHealthStatus =
+  | "healthy"
+  | "expiring"
+  | "invalid"
+  | "relogin_required"
+  | "unknown";
+
 interface DouyinCookieAccount {
   id?: string;
   remark?: string;
   cookie?: string;
   enabled?: boolean;
   weight?: number | null;
+  /** 健康状态；缺省/历史账号视为 unknown */
+  healthStatus?: DouyinAccountHealthStatus;
+  /** 最近一次健康检查时间（ms epoch） */
+  healthCheckedAt?: number;
+  /** 健康判定原因（可展示/日志用，禁止含 cookie） */
+  healthReason?: string;
 }
 
 export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
