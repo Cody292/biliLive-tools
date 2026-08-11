@@ -24,15 +24,14 @@ planning-with-files/
 git规范.md
 
 # Local test artifacts not intended for this publish
-packages/StreamGet/test/http.test.ts
+# 目录级：避免逐个追加；已跟踪文件需另 git rm --cached
+packages/DouYinRecorder/tests/
+packages/shared/test/
+packages/http/test/
+packages/app/src/**/__tests__/
+packages/http/src/**/*.test.ts
 packages/DouYinDanma/test/
 packages/DouYinDanma/tsconfig.vitest.json
 packages/DouYinDanma/vitest.config.ts
-packages/DouYinRecorder/tests/cookiePolicy.test.ts
-packages/DouYinRecorder/tests/cookieRotation.test.ts
-packages/http/test/recorderToClient.test.ts
-packages/http/src/services/douyinLogin.test.ts
-packages/http/src/services/douyinSessionRuntime.test.ts
-packages/shared/test/scripts/
+packages/StreamGet/test/http.test.ts
 scripts/install-bin.test.js
-packages/http/test/douyinLogin.test.ts
