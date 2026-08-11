@@ -1,4 +1,4 @@
-import type { DouyinCookieAccount } from "@biliLive-tools/types";
+import type { DouyinAccountHealthStatus, DouyinCookieAccount } from "@biliLive-tools/types";
 
 export type DouyinAccountIdentity = {
   readonly nickname?: string;
@@ -20,7 +20,41 @@ export const createDouyinCookieAccount = (): DouyinCookieAccount => ({
   enabled: true,
   // 留空 = UI「随机」；运行时 normalize 为权重 1 参与选择
   weight: null,
+  healthStatus: "unknown",
 });
+
+export const getDouyinAccountHealthTagType = (
+  status?: DouyinAccountHealthStatus,
+): "success" | "warning" | "error" | "default" => {
+  switch (status) {
+    case "healthy":
+      return "success";
+    case "expiring":
+      return "warning";
+    case "invalid":
+    case "relogin_required":
+      return "error";
+    case "unknown":
+    default:
+      return "default";
+  }
+};
+
+export const getDouyinAccountHealthTagText = (status?: DouyinAccountHealthStatus): string => {
+  switch (status) {
+    case "healthy":
+      return "健康";
+    case "expiring":
+      return "临期";
+    case "invalid":
+      return "失效";
+    case "relogin_required":
+      return "需重登";
+    case "unknown":
+    default:
+      return "未校验";
+  }
+};
 
 export const createDouyinScanLoginRemark = (date: Date = new Date()): string => {
   const year = date.getFullYear();

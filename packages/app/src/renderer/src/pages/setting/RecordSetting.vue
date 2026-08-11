@@ -554,6 +554,14 @@
                   "
                   >{{ account.updatedAt }}</span
                 >
+                <n-tag
+                  :type="getDouyinAccountHealthTagType(account.healthStatus)"
+                  size="small"
+                  style="flex-shrink: 0"
+                  :title="account.healthReason || undefined"
+                >
+                  {{ getDouyinAccountHealthTagText(account.healthStatus) }}
+                </n-tag>
                 <n-input
                   v-model:value="account.remark"
                   placeholder="备注（如主号/备号）"
@@ -578,6 +586,14 @@
                   <template #prefix>权重</template>
                 </n-input-number>
                 <n-switch v-model:value="account.enabled" />
+                <n-button
+                  size="small"
+                  secondary
+                  :loading="!!probingMap[account.id]"
+                  :disabled="!account.cookie || !!probingMap[account.id]"
+                  @click="handleProbeAccount(account)"
+                  >校验</n-button
+                >
                 <n-button type="error" ghost @click="removeGlobalDouyinAccount(account.id)"
                   >删除</n-button
                 >
@@ -720,6 +736,7 @@ import { templateRef } from "@vueuse/core";
 import { showDirectoryDialog } from "@renderer/utils/fileSystem";
 import { useUserInfoStore } from "@renderer/stores";
 import { useConfirm } from "@renderer/hooks";
+import { useNotice } from "@renderer/hooks/useNotice";
 import { douyinApi } from "@renderer/apis";
 import DouyinLoginDialog from "./components/DouyinLoginDialog.vue";
 import {
@@ -748,12 +765,14 @@ import {
   createDouyinScanLoginRemark,
   findDouyinAccountIndexByApiKey,
   formatDouyinAccountUpdatedAt,
+  getDouyinAccountHealthTagText,
+  getDouyinAccountHealthTagType,
   pickDouyinAccountRemark,
   resolveDouyinApiAccountKey,
   resolveDouyinCookieStableIdentity,
 } from "./douyinAccounts";
 
-import type { AppConfig } from "@biliLive-tools/types";
+import type { AppConfig, DouyinCookieAccount } from "@biliLive-tools/types";
 
 const config = defineModel<AppConfig>("data", {
   default: () => {},
@@ -962,6 +981,42 @@ const handleDouyinScanLogin = async () => {
   }
 };
 
+const probingMap = ref<Record<string, boolean>>({});
+const notice = useNotice();
+
+const handleProbeAccount = async (account: DouyinCookieAccount) => {
+  if (!account.cookie) {
+    notice.warning("请先输入 Cookie 或扫码登录");
+    return;
+  }
+  probingMap.value[account.id] = true;
+  try {
+    const res = await douyinApi.probeAccount({
+      accountId: account.id,
+      cookie: account.cookie,
+    });
+    const now = Date.now();
+    if (res.healthHint) {
+      account.healthStatus = res.healthHint;
+      account.healthReason = res.ok ? undefined : (res.reason || res.class);
+      account.healthCheckedAt = now;
+    } else if (res.reason || res.class) {
+      account.healthReason = res.reason || res.class;
+      account.healthCheckedAt = now;
+    }
+    emit("requestSave");
+    if (res.ok) {
+      notice.success("账号校验成功：状态正常");
+    } else {
+      notice.warning(`账号校验完成：${res.reason || res.class || "状态异常"}`);
+    }
+  } catch (err: any) {
+    notice.error(`账号校验失败：${err?.message || "网络请求异常"}`);
+  } finally {
+    probingMap.value[account.id] = false;
+  }
+};
+
 const handleDouyinLoginSuccess = (cookie: string) => {
   ensureGlobalDouyinCookieConfig();
   const accounts = config.value.recorder.douyin.accounts;
@@ -977,6 +1032,9 @@ const handleDouyinLoginSuccess = (cookie: string) => {
   targetAccount.cookie = cookie;
   targetAccount.remark = fallbackRemark;
   targetAccount.updatedAt = formatDouyinAccountUpdatedAt();
+  targetAccount.healthStatus = "healthy";
+  targetAccount.healthReason = undefined;
+  targetAccount.healthCheckedAt = Date.now();
   if (existingByCookie === undefined) {
     accounts.push(targetAccount);
   }
@@ -1035,6 +1093,9 @@ const handleDouyinLoginSuccess = (cookie: string) => {
       kept.remark = enrichedRemark;
       // 同用户合并：刷新日期；保留 kept.weight，不覆盖为 null/随机/1
       kept.updatedAt = formatDouyinAccountUpdatedAt();
+      kept.healthStatus = "healthy";
+      kept.healthReason = undefined;
+      kept.healthCheckedAt = Date.now();
       if (apiKey !== "") {
         kept.accountUid = apiKey;
       }

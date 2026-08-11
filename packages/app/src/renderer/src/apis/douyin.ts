@@ -1,3 +1,4 @@
+import type { DouyinAccountHealthStatus } from "@biliLive-tools/types";
 import request from "./request";
 
 export interface DouyinCookie {
@@ -92,6 +93,20 @@ export interface DouyinAccountIdentity {
   readonly sec_user_id?: string;
 }
 
+export interface DouyinAccountProbeParams {
+  readonly accountId?: string;
+  readonly cookie?: string;
+}
+
+export interface DouyinAccountProbeResult {
+  readonly ok: boolean;
+  readonly class?: string;
+  readonly reason?: string;
+  readonly healthHint?: DouyinAccountHealthStatus | null;
+  readonly accountId?: string | null;
+  readonly message?: string;
+}
+
 const qrcode = async (): Promise<DouyinLoginWaitingResult | DouyinLoginManualVerificationResult> => {
   const res = await request.post("/douyin/login");
   return res.data;
@@ -116,6 +131,13 @@ const submitSms = async (id: string, code: string): Promise<DouyinSubmitSmsCodeR
 
 const getAccountIdentity = async (cookie: string): Promise<DouyinAccountIdentity> => {
   const res = await request.post("/douyin/account/identity", { cookie });
+  return res.data;
+};
+
+const probeAccount = async (
+  params: DouyinAccountProbeParams,
+): Promise<DouyinAccountProbeResult> => {
+  const res = await request.post("/douyin/account/probe", params);
   return res.data;
 };
 
@@ -234,6 +256,7 @@ const douyin = {
   loginPoll,
   submitSms,
   getAccountIdentity,
+  probeAccount,
   formatDouyinCookieHeader,
   isDouyinLoginDiagnostic,
   openManualVerificationStream,
