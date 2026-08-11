@@ -20,10 +20,47 @@ import type {
 import { getInfo, getStream } from "./stream.js";
 import { singleton } from "./utils.js";
 import { resolveShortURL, parseUser } from "./douyin_api.js";
+import {
+  isAuthFailureError,
+  isQuarantinedAccount,
+  markAuthFailure,
+  probeAccountsNeedingCheck,
+  resetAuthFailForAccount,
+} from "./cookieAccountSelection.js";
 
 import DouYinDanmaClient from "douyin-danma-listener";
 
 import type { APIType } from "./types.js";
+
+export {
+  AUTH_FAIL_THRESHOLD,
+  CHECK_WINDOW_MS,
+  MIN_PROBE_INTERVAL_MS,
+  applyHealthPatch,
+  createAuthFailCounter,
+  deriveSelectableDouyinCookieAccounts,
+  isAuthFailureError,
+  isPastCheckWindow,
+  isQuarantinedAccount,
+  mapProbeResultToHealthPatch,
+  markAuthFailure,
+  maybeProbeAccount,
+  probeAccountsNeedingCheck,
+  resetAuthFailForAccount,
+  resetProbeBStateForTests,
+  setDouyinHealthPatchScheduler,
+  setDouyinProbeOnce,
+  shouldProbeAccount,
+} from "./cookieAccountSelection.js";
+export type {
+  AuthFailCounter,
+  DouyinAccountHealthPatch,
+  DouyinCookieAccountLike,
+  DouyinProbeOnceFn,
+  HealthPatchScheduler,
+  MaybeProbeResult,
+  ProbeOnceResult,
+} from "./cookieAccountSelection.js";
 
 const douyinDanmaHosts = [
   "webcast100-ws-web-hl.douyin.com",
@@ -238,56 +275,81 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   const cookieMode = this.douyinCookieMode ?? "always";
   const shouldApplyCookie = cookieMode !== "off";
   const authDouyinCookie = normalizeDouyinCookie(this.auth);
-  const enabledDouyinCookieAccounts = (this.douyinCookieAccounts ?? [])
-    .map((account) => ({
-      ...account,
-      cookie: normalizeDouyinCookie(account.cookie),
-      remark: account.remark?.trim(),
-    }))
-    .filter((account) => account.enabled !== false && account.cookie);
+  /**
+   * §9.5：选号/恢复每次从权威源 `this.douyinCookieAccounts` 重算下标。
+   * 使用权威数组下标（非派生列表下标），避免隔离后列表收缩导致 active 错位。
+   * 过滤：enabled !== false && cookie 非空 && 非 quarantine(invalid|relogin_required)。
+   * enabled 与 quarantine 正交。禁止启动时浅拷贝快照。
+   */
   const getDouyinCookieForAccountIndex = (accountIndex: number) => {
     if (!shouldApplyCookie) return undefined;
     if (accountIndex === NO_DOUYIN_COOKIE_ACCOUNT_INDEX) return undefined;
     if (accountIndex === FALLBACK_DOUYIN_COOKIE_ACCOUNT_INDEX) return authDouyinCookie;
-    return enabledDouyinCookieAccounts[accountIndex]?.cookie;
+    return normalizeDouyinCookie(this.douyinCookieAccounts?.[accountIndex]?.cookie);
   };
-  const getInitialDouyinCookieAccountIndices = () => {
+  const getSelectableDouyinCookieAccountIndices = () => {
     if (!shouldApplyCookie) return [NO_DOUYIN_COOKIE_ACCOUNT_INDEX];
-    if (enabledDouyinCookieAccounts.length === 0) {
+    const accounts = this.douyinCookieAccounts ?? [];
+    const indices: number[] = [];
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      if (!account || account.enabled === false) continue;
+      if (!normalizeDouyinCookie(account.cookie)) continue;
+      if (isQuarantinedAccount(account)) continue;
+      indices.push(i);
+    }
+    if (indices.length === 0) {
       return authDouyinCookie
         ? [FALLBACK_DOUYIN_COOKIE_ACCOUNT_INDEX]
         : [NO_DOUYIN_COOKIE_ACCOUNT_INDEX];
     }
-    const accountIndices = enabledDouyinCookieAccounts.map((_account, index) => index);
-    const authAccountIndex = enabledDouyinCookieAccounts.findIndex(
-      (account) => account.cookie === authDouyinCookie,
+    const authAccountIndex = indices.find(
+      (index) => normalizeDouyinCookie(accounts[index]?.cookie) === authDouyinCookie,
     );
-    if (authAccountIndex === -1) return accountIndices;
-    return [authAccountIndex, ...accountIndices.filter((index) => index !== authAccountIndex)];
+    if (authAccountIndex === undefined) return indices;
+    return [authAccountIndex, ...indices.filter((index) => index !== authAccountIndex)];
   };
-  const hasConfiguredDouyinCookie =
-    shouldApplyCookie && (Boolean(authDouyinCookie) || enabledDouyinCookieAccounts.length > 0);
+  const hasConfiguredDouyinCookie = () =>
+    shouldApplyCookie &&
+    (Boolean(authDouyinCookie) ||
+      (this.douyinCookieAccounts ?? []).some(
+        (account) => account.enabled !== false && Boolean(normalizeDouyinCookie(account.cookie)),
+      ));
   const findAvailableDouyinCookieAccountIndex = () => {
-    const initialAccountIndices = getInitialDouyinCookieAccountIndices();
+    // §9.5 + 隔离过滤：每次选号重算
+    const initialAccountIndices = getSelectableDouyinCookieAccountIndices();
     const availableAccountIndex = initialAccountIndices.find((accountIndex) => {
       const cookie = getDouyinCookieForAccountIndex(accountIndex);
       return !cookie || canAcquireDouyinCookieRecording(cookie);
     });
     if (availableAccountIndex !== undefined) return availableAccountIndex;
-    return initialAccountIndices.find((accountIndex) => getDouyinCookieForAccountIndex(accountIndex)) ?? NO_DOUYIN_COOKIE_ACCOUNT_INDEX;
+    return (
+      initialAccountIndices.find((accountIndex) => getDouyinCookieForAccountIndex(accountIndex)) ??
+      NO_DOUYIN_COOKIE_ACCOUNT_INDEX
+    );
   };
+  // 探针 B：选号/换号前对 unknown 或过窗账号做限流探测（注入 probeOnce；无注入则 no-op）
+  if (shouldApplyCookie) {
+    try {
+      await probeAccountsNeedingCheck({
+        accounts: this.douyinCookieAccounts,
+      });
+    } catch {
+      // best-effort：探针失败不阻断录制
+    }
+  }
   let activeDouyinCookieAccountIndex = findAvailableDouyinCookieAccountIndex();
   let acquiredDouyinCookie: string | undefined;
   let hasNotifiedDouyinCookieLimit = false;
   const getActiveDouyinCookieAccount = () => {
     if (activeDouyinCookieAccountIndex < 0) return undefined;
-    return enabledDouyinCookieAccounts[activeDouyinCookieAccountIndex];
+    return this.douyinCookieAccounts?.[activeDouyinCookieAccountIndex];
   };
   const getActiveDouyinCookie = () => {
     return acquiredDouyinCookie;
   };
   const applyActiveDouyinCookieRemark = () => {
-    const remark = getActiveDouyinCookieAccount()?.remark;
+    const remark = getActiveDouyinCookieAccount()?.remark?.trim();
     const { currentDouyinCookieRemark: _previousRemark, ...extraWithoutRemark } = this.extra ?? {};
     this.extra = {
       ...extraWithoutRemark,
@@ -295,7 +357,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     };
   };
   const notifyDouyinCookieLimit = () => {
-    if (!hasConfiguredDouyinCookie || hasNotifiedDouyinCookieLimit) return;
+    if (!hasConfiguredDouyinCookie() || hasNotifiedDouyinCookieLimit) return;
     hasNotifiedDouyinCookieLimit = true;
     const text = "抖音 Cookie 均已达到 4 个录制占用，本直播间将继续超限使用 Cookie 连接弹幕，礼物获取状态请以真实场景为准，请及时处理。";
     if (typeof this.appendTimeline === "function") {
@@ -335,18 +397,19 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   const getDouyinDanmaRecoveryKey = (accountIndex: number, hostIndex: number) =>
     `${getDouyinCookieForAccountIndex(accountIndex) ?? ""}\n${douyinDanmaHosts[hostIndex] ?? ""}`;
   const attemptedDouyinDanmaRecoveryKeys = new Set<string>();
+  /** 6e：隔离号永不进 recovery；§9.5 每次重算 selectable */
   const getDouyinDanmaRecoveryAccountIndices = () => {
-    const accountIndices = shouldApplyCookie
-      ? enabledDouyinCookieAccounts.length > 0
-        ? enabledDouyinCookieAccounts.map((_account, index) => index)
-        : authDouyinCookie
-          ? [FALLBACK_DOUYIN_COOKIE_ACCOUNT_INDEX]
-          : []
-      : [];
+    if (!shouldApplyCookie) return [];
+    const selectable = getSelectableDouyinCookieAccountIndices().filter(
+      (index) => index !== NO_DOUYIN_COOKIE_ACCOUNT_INDEX,
+    );
+    if (selectable.length === 0) return [];
     return [
       ...new Set([
-        activeDouyinCookieAccountIndex,
-        ...accountIndices,
+        ...(selectable.includes(activeDouyinCookieAccountIndex)
+          ? [activeDouyinCookieAccountIndex]
+          : []),
+        ...selectable,
       ]),
     ];
   };
@@ -358,6 +421,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     return changesCookie && changesHost ? 0 : changesCookie ? 1 : 2;
   };
   const findNextDanmaRecoveryCandidate = () => {
+    // §9.5 + 6e：每次从权威源重算非隔离候选
     const accountIndices = getDouyinDanmaRecoveryAccountIndices();
     const hostIndices = douyinDanmaHosts.map((_host, index) => index);
     const candidates = accountIndices.flatMap((accountIndex) =>
@@ -383,6 +447,11 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
           ),
       )
       .filter((candidate) => {
+        // 双保险：权威源上仍可能被并发 mark 为隔离
+        if (candidate.accountIndex >= 0) {
+          const account = this.douyinCookieAccounts?.[candidate.accountIndex];
+          if (account && isQuarantinedAccount(account)) return false;
+        }
         const candidateCookie = getDouyinCookieForAccountIndex(candidate.accountIndex);
         return (
           !candidateCookie ||
@@ -391,6 +460,38 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         );
       })
       .sort((left, right) => left.priority - right.priority)[0];
+  };
+
+  /** 探针 A：鉴权类失败累计 → invalid；非鉴权不升级；无全局熔断 */
+  const applyProbeAOnDanmaAuthFailure = (err: unknown) => {
+    if (!isAuthFailureError(err)) return;
+    const account = getActiveDouyinCookieAccount();
+    const accountId = account?.id;
+    if (!accountId) return;
+    const reason = `danma auth: ${formatUnknownError(err)}`.slice(0, 200);
+    const result = markAuthFailure({
+      accountId,
+      reason,
+      accounts: this.douyinCookieAccounts,
+    });
+    if (result.kind === "invalidated") {
+      this.emit("DebugLog", {
+        type: "common",
+        text: `douyin ${this.channelId} probe-A quarantine account id=${accountId} → invalid (${reason})`,
+      });
+    }
+  };
+
+  /** 探针 B：换号前对池内 need-probe 账号限流探测（best-effort） */
+  const runProbeBBeforeSwitch = async () => {
+    if (!shouldApplyCookie) return;
+    try {
+      await probeAccountsNeedingCheck({
+        accounts: this.douyinCookieAccounts,
+      });
+    } catch {
+      // best-effort
+    }
   };
 
   let isEnded = false;
@@ -631,13 +732,15 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       throw error;
     }
   };
-  const rotateDouyinCookieAndHostAfterDanmaFailure = () => {
+  const rotateDouyinCookieAndHostAfterDanmaFailure = async () => {
     if (isDanmaStopped) {
       return false;
     }
     if (!shouldManageDouyinDanmaRecovery) {
       return false;
     }
+    // 换号前探针 B（30s 限流 + shouldProbe）
+    await runProbeBBeforeSwitch();
     const previousClient = activeDanmaClient;
     const candidate = findNextDanmaRecoveryCandidate();
     if (!candidate) {
@@ -658,11 +761,14 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     activeDouyinDanmaHostIndex = candidate.hostIndex;
     ensureActiveDouyinCookieAcquired();
     applyActiveDouyinCookieRemark();
-    const remark = getActiveDouyinCookieAccount()?.remark ?? (getActiveDouyinCookie() ? "未命名账号" : "无 Cookie 降级");
+    // 换号成功：新账号 auth-fail 计数保持独立；旧号若未达阈值保留计数
+    const remark =
+      getActiveDouyinCookieAccount()?.remark?.trim() ||
+      (getActiveDouyinCookie() ? "未命名账号" : "无 Cookie 降级");
     this.emit("DebugLog", {
       type: "common",
-        text: `douyin ${this.channelId} danma switch cookie account and host: ${remark}, ${getActiveDouyinDanmaHost()}`,
-      });
+      text: `douyin ${this.channelId} danma switch cookie account and host: ${remark}, ${getActiveDouyinDanmaHost()}`,
+    });
     startDanmaClient();
     return true;
   };
@@ -682,7 +788,9 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     if (client !== activeDanmaClient) {
       return;
     }
-    rotateDouyinCookieAndHostAfterDanmaFailure();
+    // 探针 A 挂点：鉴权失败累计；非鉴权不升级；不全局熔断
+    applyProbeAOnDanmaAuthFailure(err);
+    void rotateDouyinCookieAndHostAfterDanmaFailure();
   };
   const handleDanmaInit = (url: string) => {
     this.emit("DebugLog", {
@@ -694,6 +802,8 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     if (client !== activeDanmaClient) {
       return;
     }
+    // 成功路径：重置当前账号连续鉴权失败计数
+    resetAuthFailForAccount(getActiveDouyinCookieAccount()?.id);
     this.appendTimeline({ text: `弹幕连接已建立` });
     this.emit("DebugLog", {
       type: "common",
@@ -708,6 +818,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     if (ignoredDanmaCloseClients.delete(client) || client !== activeDanmaClient) {
       return;
     }
+    // close 无可靠鉴权分类时不 mark；仅换号恢复
     rotateDouyinCookieAndHostAfterDanmaFailure();
   };
 
