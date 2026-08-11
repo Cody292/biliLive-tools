@@ -1,7 +1,17 @@
 import Router from "@koa/router";
 import { z } from "zod";
 
+import { scheduleHealthAccountPatch } from "@biliLive-tools/shared";
+
 import { douyinLoginService, DouyinLoginDiagnosticError } from "../services/douyinLogin.js";
+import {
+  fetchDouyinAccountIdentity,
+  mapProbeToHealthHint,
+  probeOnce,
+  type DouyinAccountIdentity,
+  type ProbeOnceResult,
+} from "../services/douyinIdentityProbe.js";
+import { appConfig } from "../index.js";
 
 import type { DouyinLoginService } from "../services/douyinLogin.js";
 
@@ -40,6 +50,17 @@ const AccountIdentitySchema = z.object({
   cookie: z.string().trim().min(1),
 }).strict();
 
+/** 手动/设置页：按 accountId 或 cookie 校验，写健康字段 */
+const AccountProbeSchema = z
+  .object({
+    accountId: z.string().trim().min(1).optional(),
+    cookie: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.accountId || v.cookie), {
+    message: "accountId or cookie required",
+  });
+
 type ManualVerificationResponse = {
   readonly id: string;
   readonly status: "manual_verification";
@@ -50,12 +71,6 @@ type ManualVerificationResponse = {
     readonly input: readonly ["mouse", "key"];
     readonly screencast: "active" | "unavailable";
   };
-};
-
-type DouyinAccountIdentity = {
-  readonly nickname?: string;
-  readonly uid?: string;
-  readonly sec_user_id?: string;
 };
 
 type DouyinLoginServiceContract = Pick<
@@ -142,93 +157,23 @@ function sanitizeManualVerificationResult(result: ManualVerificationResponse): M
   };
 }
 
-const DOUYIN_IDENTITY_TIMEOUT_MS = 3500;
-
-function pickDouyinIdentityText(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
-
-function firstDouyinIdentityText(...values: readonly unknown[]): string | undefined {
-  for (const value of values) {
-    const picked = pickDouyinIdentityText(value);
-    if (picked !== undefined) {
-      return picked;
-    }
-  }
-  return undefined;
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readDouyinIdentityUser(payload: Record<string, unknown>): Record<string, unknown> | undefined {
-  const directUser = payload.user ?? payload.user_info ?? payload.userInfo;
-  if (isPlainRecord(directUser)) {
-    return directUser;
-  }
-  const data = payload.data;
-  if (!isPlainRecord(data)) {
-    return undefined;
-  }
-  const dataUser = data.user ?? data.user_info ?? data.userInfo;
-  return isPlainRecord(dataUser) ? dataUser : undefined;
-}
-
-function normalizeDouyinIdentityPayload(payload: unknown): DouyinAccountIdentity {
-  if (!isPlainRecord(payload)) {
-    return {};
-  }
-  const user = readDouyinIdentityUser(payload) ?? payload;
-  const nickname = firstDouyinIdentityText(user.nickname, user.nick_name, user.name, payload.nickname);
-  const uid = firstDouyinIdentityText(user.uid, user.user_id, user.userId, payload.uid);
-  const secUserID = firstDouyinIdentityText(user.sec_uid, user.sec_user_id, user.secUid, payload.sec_user_id);
-  return {
-    ...(nickname === undefined ? {} : { nickname }),
-    ...(uid === undefined ? {} : { uid }),
-    ...(secUserID === undefined ? {} : { sec_user_id: secUserID }),
-  };
-}
-
-async function fetchDouyinAccountIdentity(cookie: string): Promise<DouyinAccountIdentity> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DOUYIN_IDENTITY_TIMEOUT_MS);
-  try {
-    const response = await fetch(
-      "https://www.douyin.com/aweme/v1/web/user/profile/self/?aid=6383&device_platform=webapp",
-      {
-        method: "GET",
-        signal: controller.signal,
-        headers: {
-          accept: "application/json, text/plain, */*",
-          cookie,
-          referer: "https://www.douyin.com/",
-          "user-agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        },
-      },
-    );
-    if (!response.ok) {
-      return {};
-    }
-    const text = await response.text();
-    if (text.trim() === "") {
-      return {};
-    }
-    return normalizeDouyinIdentityPayload(JSON.parse(text));
-  } catch {
-    return {};
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+type ResolveProbeCookie = (input: {
+  accountId?: string;
+  cookie?: string;
+}) => Promise<{ accountId?: string; cookie: string } | null>;
 
 type DouyinRouterOptions = {
   readonly fetchAccountIdentity?: (cookie: string) => Promise<DouyinAccountIdentity>;
+  readonly probeOnce?: (cookie: string) => Promise<ProbeOnceResult>;
+  readonly resolveProbeCookie?: ResolveProbeCookie;
+  readonly scheduleHealthPatch?: (input: {
+    accountId: string;
+    patch: {
+      healthStatus?: "healthy" | "expiring" | "invalid" | "relogin_required" | "unknown";
+      healthCheckedAt?: number;
+      healthReason?: string;
+    };
+  }) => void;
 };
 
 export function createDouyinRouter(
@@ -239,6 +184,27 @@ export function createDouyinRouter(
     prefix: "/douyin",
   });
   const fetchAccountIdentity = options.fetchAccountIdentity ?? fetchDouyinAccountIdentity;
+  const runProbeOnce = options.probeOnce ?? probeOnce;
+  const scheduleHealthPatch = options.scheduleHealthPatch ?? scheduleHealthAccountPatch;
+  const resolveProbeCookie: ResolveProbeCookie =
+    options.resolveProbeCookie ??
+    (async ({ accountId, cookie }) => {
+      if (cookie) return { accountId, cookie };
+      if (!accountId) return null;
+      try {
+        const all = appConfig?.getAll?.() as
+          | { recorder?: { douyin?: { accounts?: Array<{ id?: string; cookie?: string }> } } }
+          | undefined;
+        const accounts = all?.recorder?.douyin?.accounts;
+        if (!Array.isArray(accounts)) return null;
+        const found = accounts.find((a) => a?.id === accountId);
+        const c = found?.cookie?.trim();
+        if (!c) return null;
+        return { accountId, cookie: c };
+      } catch {
+        return null;
+      }
+    });
 
   router.post("/login", async (ctx) => {
     try {
@@ -274,6 +240,79 @@ export function createDouyinRouter(
     } catch {
       ctx.body = {};
     }
+  });
+
+  /**
+   * 探针 B 手动校验：返回 classifiable ProbeOnceResult，并在有 accountId 时写健康字段。
+   * ok→healthy；auth_failed→invalid；timeout/network 仅 reason、status 不变。
+   */
+  router.post("/account/probe", async (ctx) => {
+    const parsed = AccountProbeSchema.safeParse(ctx.request.body);
+    if (!parsed.success) {
+      ctx.status = 400;
+      ctx.body = { message: "invalid account probe payload" };
+      return;
+    }
+
+    let accountId = parsed.data.accountId;
+    let cookie = parsed.data.cookie;
+
+    if (!cookie && accountId) {
+      const resolved = await resolveProbeCookie({ accountId, cookie });
+      if (!resolved) {
+        ctx.status = 404;
+        ctx.body = { message: "account not found" };
+        return;
+      }
+      accountId = resolved.accountId ?? accountId;
+      cookie = resolved.cookie;
+    }
+
+    if (!cookie) {
+      ctx.status = 400;
+      ctx.body = { message: "cookie required" };
+      return;
+    }
+
+    const result = await runProbeOnce(cookie);
+    const now = Date.now();
+    const healthHint = mapProbeToHealthHint(result);
+
+    if (accountId) {
+      if (result.ok) {
+        scheduleHealthPatch({
+          accountId,
+          patch: {
+            healthStatus: "healthy",
+            healthCheckedAt: now,
+            healthReason: "probe ok",
+          },
+        });
+      } else if (result.class === "auth_failed") {
+        scheduleHealthPatch({
+          accountId,
+          patch: {
+            healthStatus: "invalid",
+            healthCheckedAt: now,
+            healthReason: result.reason ?? "auth_failed",
+          },
+        });
+      } else {
+        // timeout/network：仅 reason，status 不变
+        scheduleHealthPatch({
+          accountId,
+          patch: {
+            healthReason: result.reason ?? result.class,
+          },
+        });
+      }
+    }
+
+    ctx.body = {
+      ...result,
+      healthHint: healthHint ?? null,
+      accountId: accountId ?? null,
+    };
   });
 
   router.get("/login/poll", async (ctx) => {

@@ -103,6 +103,24 @@ export async function serverStart(
   appConfig = container.resolve("appConfig");
   handler = new WebhookHandler(appConfig);
 
+  // 探针 B：注入 probeOnce 到 DouYinRecorder（避免 recorder/shared 静态依赖 http）
+  void import("@bililive-tools/douyin-recorder")
+    .then(async (rec) => {
+      const setProbe = (
+        rec as {
+          setDouyinProbeOnce?: (
+            fn: ((cookie: string) => Promise<unknown>) | null,
+          ) => void;
+        }
+      ).setDouyinProbeOnce;
+      if (!setProbe) return;
+      const { probeOnce } = await import("./services/douyinIdentityProbe.js");
+      setProbe((cookie) => probeOnce(cookie));
+    })
+    .catch(() => {
+      // best-effort
+    });
+
   if (options.auth) {
     const passKey = process.env.BILILIVE_TOOLS_PASSKEY || options.passKey;
     const auth = authMiddleware(passKey);
