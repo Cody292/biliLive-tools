@@ -466,6 +466,11 @@ interface DouyinRecorderConfig extends RecorderCheckConfig {
   doubleScreen: boolean;
   /** 接口类型 */
   api: "web" | "webHTML" | "mobile" | "userHTML" | "balance" | "random";
+  /** 探针C配置 */
+  probeC?: {
+    /** 是否开启空闲巡检（层2），默认 true */
+    idlePatrolEnabled?: boolean;
+  };
 }
 
 interface XhsRecorderConfig extends RecorderCheckConfig {
