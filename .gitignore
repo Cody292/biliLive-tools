@@ -35,3 +35,15 @@ packages/DouYinDanma/tsconfig.vitest.json
 packages/DouYinDanma/vitest.config.ts
 packages/StreamGet/test/http.test.ts
 scripts/install-bin.test.js
+
+# Local experiment / planning / scratch assets
+findings.md
+task_plan.md
+progress.md
+_scratch_*/
+.hotpatch-work/
+.browser-memory/
+.omo/
+Obscura文档.md
+抓包.md
+草稿.md
