@@ -1,7 +1,10 @@
 import Router from "@koa/router";
 import { z } from "zod";
 
-import { scheduleHealthAccountPatch } from "@biliLive-tools/shared";
+import {
+  InvalidAccountIdError,
+  scheduleHealthAccountPatch,
+} from "@biliLive-tools/shared";
 
 import { douyinLoginService, DouyinLoginDiagnosticError } from "../services/douyinLogin.js";
 import {
@@ -11,6 +14,14 @@ import {
   type DouyinAccountIdentity,
   type ProbeOnceResult,
 } from "../services/douyinIdentityProbe.js";
+import {
+  AccountNotFoundError,
+  silentRenewAccount,
+  type GetAccountFn,
+  type SilentRenewAccountInput,
+  type SilentRenewApiResult,
+  type SilentRenewServiceDeps,
+} from "../services/douyinSilentRenewService.js";
 import { appConfig } from "../index.js";
 
 import type { DouyinLoginService } from "../services/douyinLogin.js";
@@ -60,6 +71,12 @@ const AccountProbeSchema = z
   .refine((v) => Boolean(v.accountId || v.cookie), {
     message: "accountId or cookie required",
   });
+
+const AccountSilentRenewSchema = z
+  .object({
+    accountId: z.string().trim().min(1),
+  })
+  .strict();
 
 type ManualVerificationResponse = {
   readonly id: string;
@@ -162,6 +179,11 @@ type ResolveProbeCookie = (input: {
   cookie?: string;
 }) => Promise<{ accountId?: string; cookie: string } | null>;
 
+type SilentRenewAccountFn = (
+  deps: SilentRenewServiceDeps,
+  input: SilentRenewAccountInput,
+) => Promise<SilentRenewApiResult>;
+
 type DouyinRouterOptions = {
   readonly fetchAccountIdentity?: (cookie: string) => Promise<DouyinAccountIdentity>;
   readonly probeOnce?: (cookie: string) => Promise<ProbeOnceResult>;
@@ -172,8 +194,11 @@ type DouyinRouterOptions = {
       healthStatus?: "healthy" | "expiring" | "invalid" | "relogin_required" | "unknown";
       healthCheckedAt?: number;
       healthReason?: string;
+      cookie?: string;
     };
   }) => void;
+  readonly getAccount?: GetAccountFn;
+  readonly silentRenewAccount?: SilentRenewAccountFn;
 };
 
 export function createDouyinRouter(
@@ -186,6 +211,55 @@ export function createDouyinRouter(
   const fetchAccountIdentity = options.fetchAccountIdentity ?? fetchDouyinAccountIdentity;
   const runProbeOnce = options.probeOnce ?? probeOnce;
   const scheduleHealthPatch = options.scheduleHealthPatch ?? scheduleHealthAccountPatch;
+  const runSilentRenew = options.silentRenewAccount ?? silentRenewAccount;
+  const getAccount: GetAccountFn =
+    options.getAccount ??
+    ((accountId) => {
+      try {
+        const all = appConfig?.getAll?.() as
+          | {
+              recorder?: {
+                douyin?: {
+                  accounts?: Array<{
+                    id?: string;
+                    cookie?: string;
+                    remark?: string;
+                    enabled?: boolean;
+                    weight?: number | null;
+                    accountUid?: string;
+                    updatedAt?: string;
+                    healthStatus?: string;
+                    healthCheckedAt?: number;
+                    healthReason?: string;
+                  }>;
+                };
+              };
+            }
+          | undefined;
+        const accounts = all?.recorder?.douyin?.accounts;
+        if (!Array.isArray(accounts)) return null;
+        const found = accounts.find((a) => a?.id === accountId);
+        if (!found?.id) return null;
+        return {
+          id: found.id,
+          cookie: typeof found.cookie === "string" ? found.cookie : "",
+          remark: typeof found.remark === "string" ? found.remark : "",
+          enabled: found.enabled !== false,
+          weight: found.weight ?? null,
+          ...(found.accountUid !== undefined ? { accountUid: found.accountUid } : {}),
+          ...(found.updatedAt !== undefined ? { updatedAt: found.updatedAt } : {}),
+          ...(found.healthStatus !== undefined
+            ? { healthStatus: found.healthStatus as never }
+            : {}),
+          ...(found.healthCheckedAt !== undefined
+            ? { healthCheckedAt: found.healthCheckedAt }
+            : {}),
+          ...(found.healthReason !== undefined ? { healthReason: found.healthReason } : {}),
+        };
+      } catch {
+        return null;
+      }
+    });
   const resolveProbeCookie: ResolveProbeCookie =
     options.resolveProbeCookie ??
     (async ({ accountId, cookie }) => {
@@ -313,6 +387,39 @@ export function createDouyinRouter(
       healthHint: healthHint ?? null,
       accountId: accountId ?? null,
     };
+  });
+
+  router.post("/account/silent-renew", async (ctx) => {
+    const parsed = AccountSilentRenewSchema.safeParse(ctx.request.body);
+    if (!parsed.success) {
+      ctx.status = 400;
+      ctx.body = { message: "invalid silent renew payload" };
+      return;
+    }
+
+    try {
+      const result = await runSilentRenew(
+        {
+          getAccount,
+          scheduleHealthAccountPatch: scheduleHealthPatch,
+        },
+        { accountId: parsed.data.accountId },
+      );
+      ctx.status = 200;
+      ctx.body = result;
+    } catch (error) {
+      if (error instanceof InvalidAccountIdError) {
+        ctx.status = 400;
+        ctx.body = { message: error.message, code: error.code };
+        return;
+      }
+      if (error instanceof AccountNotFoundError) {
+        ctx.status = 404;
+        ctx.body = { message: "account not found", code: error.code };
+        return;
+      }
+      throw error;
+    }
   });
 
   router.get("/login/poll", async (ctx) => {

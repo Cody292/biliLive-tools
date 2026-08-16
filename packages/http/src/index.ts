@@ -31,7 +31,7 @@ import aiRouter from "./routes/ai.js";
 import { WebhookHandler } from "./services/webhook/webhook.js";
 import { createFileCache } from "./services/fileCache.js";
 
-import type { GlobalConfig } from "@biliLive-tools/types";
+import type { DouyinCookieAccount, GlobalConfig } from "@biliLive-tools/types";
 import type { AwilixContainer } from "awilix";
 import type { AppConfig, GlobalContainer } from "@biliLive-tools/shared";
 
@@ -40,6 +40,24 @@ export let handler!: WebhookHandler;
 export let appConfig!: AppConfig;
 export let container!: AwilixContainer<GlobalContainer>;
 export const fileCache = createFileCache();
+
+let stopSilentRenewHandle: (() => void) | null = null;
+let silentRenewSignalRegistered = false;
+
+function registerSilentRenewShutdown(stopFn: () => void): void {
+  stopSilentRenewHandle = stopFn;
+  if (silentRenewSignalRegistered) {
+    return;
+  }
+  silentRenewSignalRegistered = true;
+  const onSignal = () => {
+    try {
+      stopSilentRenewHandle?.();
+    } catch {}
+  };
+  process.once("SIGTERM", onSignal);
+  process.once("SIGINT", onSignal);
+}
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -103,7 +121,7 @@ export async function serverStart(
   appConfig = container.resolve("appConfig");
   handler = new WebhookHandler(appConfig);
 
-  // 探针 B：注入 probeOnce 到 DouYinRecorder（避免 recorder/shared 静态依赖 http）
+  // 探针 B + 探针 C：注入 probeOnce；层2 空闲巡检 best-effort 启动（默认 ON）
   void import("@bililive-tools/douyin-recorder")
     .then(async (rec) => {
       const setProbe = (
@@ -115,7 +133,73 @@ export async function serverStart(
       ).setDouyinProbeOnce;
       if (!setProbe) return;
       const { probeOnce } = await import("./services/douyinIdentityProbe.js");
-      setProbe((cookie) => probeOnce(cookie));
+      const probeFn = (cookie: string) => probeOnce(cookie);
+      setProbe(probeFn);
+
+      const setProbeC = (
+        rec as {
+          setDouyinProbeCOnce?: (
+            fn: ((cookie: string) => Promise<unknown>) | null,
+          ) => void;
+        }
+      ).setDouyinProbeCOnce;
+      setProbeC?.(probeFn);
+
+      const wire = (
+        rec as {
+          wireProbeCHost?: (opts: {
+            probeOnce?: ((cookie: string) => Promise<unknown>) | null;
+            getAccounts?: () => unknown;
+            enabled?: boolean;
+          }) => { probeInjected: boolean; patrolStarted: boolean };
+        }
+      ).wireProbeCHost;
+
+      const getAccounts = () => {
+        try {
+          const recorder = appConfig?.get?.("recorder") as
+            | { douyin?: { accounts?: unknown } }
+            | undefined;
+          const accounts = recorder?.douyin?.accounts;
+          return Array.isArray(accounts) ? accounts : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const getIdlePatrolEnabled = () => {
+        try {
+          const recorder = appConfig?.get?.("recorder") as
+            | { douyin?: { probeC?: { idlePatrolEnabled?: boolean } } }
+            | undefined;
+          const enabled = recorder?.douyin?.probeC?.idlePatrolEnabled;
+          return enabled !== false;
+        } catch {
+          return true;
+        }
+      };
+
+      // getAccounts 拿不到列表时 wire 仍注入 probe 并 no-op start
+      wire?.({
+        probeOnce: probeFn as (cookie: string) => Promise<unknown>,
+        getAccounts,
+        enabled: getIdlePatrolEnabled(),
+      });
+
+      try {
+        const { startSilentRenewScheduler, stopSilentRenewScheduler } =
+          await import("./services/douyinSilentRenewScheduler.js");
+        registerSilentRenewShutdown(stopSilentRenewScheduler);
+        startSilentRenewScheduler({
+          getAccounts: () => {
+            const list = getAccounts();
+            return Array.isArray(list) ? (list as unknown as readonly DouyinCookieAccount[]) : [];
+          },
+          log: (payload) => {
+            logger.info("[douyin-silent-renew]", JSON.stringify(payload));
+          },
+        });
+      } catch {}
     })
     .catch(() => {
       // best-effort
