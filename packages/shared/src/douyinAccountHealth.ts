@@ -73,13 +73,14 @@ export type DouyinAccountHealthPatch = {
   healthStatus?: DouyinAccountHealthStatus;
   healthCheckedAt?: number;
   healthReason?: string;
-  /** 仅当显式传入时才覆盖 cookie；默认不碰 cookie / updatedAt */
+  updatedAt?: string;
+  /** 仅当显式传入时才覆盖 cookie / updatedAt */
   cookie?: string;
 };
 
 /**
  * 合并 health* 字段，返回新对象。
- * 永不改写 updatedAt；cookie 仅当 patch 显式携带时覆盖。
+ * cookie / updatedAt 仅当 patch 显式携带时覆盖。
  */
 export function applyHealthPatch(
   account: DouyinCookieAccount,
@@ -90,6 +91,7 @@ export function applyHealthPatch(
   if (patch.healthCheckedAt !== undefined) next.healthCheckedAt = patch.healthCheckedAt;
   if (patch.healthReason !== undefined) next.healthReason = patch.healthReason;
   if (patch.cookie !== undefined) next.cookie = patch.cookie;
+  if (patch.updatedAt !== undefined) next.updatedAt = patch.updatedAt;
   return next;
 }
 

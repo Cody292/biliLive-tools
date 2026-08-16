@@ -155,6 +155,7 @@ export {
   checkAndNotifyHealthEdge,
   flushHealthPersist,
   bindHealthPersistHost,
+  resetHealthPersistForTests,
   type HealthPersistHost,
   type ScheduleHealthAccountPatchInput,
 } from "./douyinHealthPersist.js";
@@ -168,3 +169,53 @@ export {
   AUTH_FAIL_THRESHOLD,
   type DouyinAccountHealthPatch,
 } from "./douyinAccountHealth.js";
+export {
+  DEFAULT_DOUYIN_PROFILE_BASE_DIR,
+  InvalidAccountIdError,
+  sanitizeAccountId,
+  resolveProfileDir,
+  ensureProfileDir,
+  type EnsureProfileDirOptions,
+} from "./douyinProfilePaths.js";
+export {
+  PROFILE_LOCK_FILENAME,
+  ProfileLockTimeoutError,
+  acquireProfileLock,
+  type ProfileLockFs,
+  type ProfileLockHandle,
+  type AcquireProfileLockOptions,
+} from "./douyinProfileLock.js";
+export {
+  SECRETS_SIDECAR_FILENAME,
+  MissingBilikeyError,
+  resolveBilikey,
+  encryptSecretsBlob,
+  decryptSecretsBlob,
+  writeSecretsSidecar,
+  readSecretsSidecar,
+  redactCookieMeta,
+  type SecretsPayload,
+  type CookieRedactMeta,
+} from "./douyinProfileSecrets.js";
+export {
+  mapSilentRenewResult,
+  type SilentRenewFailureClass,
+  type SilentRenewRotateEvidence,
+  type SilentRenewRuntimeInput,
+  type SilentRenewCoreResult,
+  type MapSilentRenewOptions,
+} from "./douyinSilentRenewCore.js";
+export {
+  collectQueryUserIdentityKeys,
+  reconcileDouyinAccountUid,
+  type DouyinIdentityReconcileReason,
+  type DouyinIdentityReconcileResult,
+} from "./douyinIdentityReconcile.js";
+export {
+  hashCookieHeader12,
+  isCookieRotated,
+  collectSetCookieNames,
+  AUTH_SET_COOKIE_NAMES,
+  type CookieRotateCheckInput,
+} from "./douyinCookieRotate.js";
+
