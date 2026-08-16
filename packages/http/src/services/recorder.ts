@@ -8,7 +8,7 @@ import logger from "@biliLive-tools/shared/utils/log.js";
 import { defaultRecordConfig } from "@biliLive-tools/shared/enum.js";
 
 import type { RecorderAPI, ClientRecorder } from "../types/recorder.js";
-import type { Recorder } from "@bililive-tools/manager";
+import type { Recorder, FormatName } from "@bililive-tools/manager";
 import type { Recorder as RecorderConfig } from "@biliLive-tools/types";
 
 function normalizeDouyinCookieMode(mode: RecorderConfig["douyinCookieMode"]) {
@@ -37,10 +37,9 @@ async function getRecorders(
   if (params.platform) {
     list = list.filter((item) => item.providerId === params.platform);
   }
-  if (params.recordStatus) {
-    list = list.filter(
-      (item) => (item.recordHandle != null) === (params.recordStatus === "recording"),
-    );
+  if (params.status) {
+    const normalizedStatus = params.status;
+    list = list.filter((item) => item.state === normalizedStatus);
   }
   if (params.name) {
     list = list.filter(
@@ -360,7 +359,13 @@ export function recorderToClient(recorder: Recorder): ClientRecorder {
 
 export function resolveChannel(url: string) {
   const recorderManager = container.resolve("recorderManager");
-  return recorderManager.resolveChannel(url);
+  const matchedProviders = recorderManager.manager.getChannelURLMatchedRecorderProviders(url);
+  const isTikTok = matchedProviders.some((provider) => provider.id === "TikTok");
+  const proxy = isTikTok
+    ? container.resolve("appConfig").get("recorder").tiktok.proxy || undefined
+    : undefined;
+
+  return recorderManager.resolveChannel(url, { proxy });
 }
 
 export async function resolve(url: string) {
@@ -437,6 +442,37 @@ export async function batchResolveChannel(urls: string[]) {
     successCount,
     failedCount,
   };
+}
+
+export async function getStreamUrl(id: string) {
+  const recorderManager = container.resolve("recorderManager");
+  const recorder = recorderManager.manager.recorders.find((item) => item.id === id);
+  if (!recorder) throw new Error("未找到录制器");
+  let url: string | undefined;
+  if (recorder.recordHandle) {
+    if (recorder.providerId === "DouYin") {
+      url = recorder.recordHandle.url;
+    }
+  }
+
+  if (!url) {
+    // B站的fmp4流不需要referer验证
+    let formatName: FormatName | undefined;
+    let formatPriorities: Array<"flv" | "hls"> | undefined;
+    if (recorder.providerId === "Bilibili") {
+      formatName = "fmp4";
+    } else if (recorder.providerId === "TikTok") {
+      formatName = "hls";
+      formatPriorities = ["hls", "flv"];
+    }
+    const data = await recorder.getStream({
+      formatName: formatName,
+      formatPriorities: formatPriorities,
+    });
+    url = data.url;
+  }
+
+  return { url };
 }
 
 export async function getLiveInfo(ids: string[]) {
@@ -532,4 +568,5 @@ export default {
   batchResolveChannel,
   getBiliStream,
   resolve,
+  getStreamUrl,
 };

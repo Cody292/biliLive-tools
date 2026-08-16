@@ -5,7 +5,7 @@
       <p>此项大部分配置不即时生效，需重新开始一个录制方可生效</p>
     </div>
 
-    <n-form label-placement="left" :label-width="145">
+    <n-form label-placement="left" :label-width="labelWidth">
       <n-tabs type="segment" style="margin-top: 10px" class="tabs">
         <n-tab-pane
           class="tab-pane"
@@ -241,7 +241,7 @@
             </template>
             <n-select
               v-model:value="config.recorder.bilibili.codecName"
-              :options="streamCodecOptions"
+              :options="biliStreamCodecOptions"
             />
           </n-form-item>
           <n-form-item v-if="config.recorder.bilibili.formatName !== 'flv_only'">
@@ -732,6 +732,106 @@
             </n-input-number>
           </n-form-item>
         </n-tab-pane>
+        <n-tab-pane class="tab-pane" name="tiktok" tab="TikTok" display-directive="show:lazy">
+          <n-form-item>
+            <template #label>
+              <Tip text="画质" tip="使用 TikTok 原生画质标识选择直播流"></Tip>
+            </template>
+            <n-select
+              v-model:value="config.recorder.tiktok.quality"
+              :options="tiktokQualityOptions"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="流格式" tip="默认优先 FLV，其次 HLS"></Tip>
+            </template>
+            <n-select
+              v-model:value="config.recorder.tiktok.formatName"
+              :options="douyinStreamFormatOptions"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="流编码" tip="自动模式默认使用 AVC，也可优先或强制使用 HEVC"></Tip>
+            </template>
+            <n-select
+              v-model:value="config.recorder.tiktok.codecName"
+              :options="biliStreamCodecOptions"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="请求接口" tip="随机模式会在 web 接口和直播 html 解析之间随机选择"></Tip>
+            </template>
+            <n-select v-model:value="config.recorder.tiktok.api" :options="tiktokApiTypeOptions" />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="Cookie" tip="遇到年龄限制或风控时可填写 TikTok Cookie"></Tip>
+            </template>
+            <n-input v-model:value="config.recorder.tiktok.cookie" type="password" />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="代理" tip="用于请求和直播流录制，支持http代理"></Tip>
+            </template>
+            <n-input
+              v-model:value="config.recorder.tiktok.proxy"
+              placeholder="例如：http://127.0.0.1:7890"
+              clearable
+            />
+          </n-form-item>
+
+          <div class="divider"></div>
+          <n-form-item>
+            <template #label>
+              <Tip
+                :tip="textInfo.common.checkInterval.tip"
+                :text="textInfo.common.checkInterval.text"
+              ></Tip>
+            </template>
+            <n-input-number
+              v-model:value="config.recorder.tiktok.checkInterval"
+              min="10"
+              step="10"
+              style="width: 220px"
+              :placeholder="textInfo.common.checkInterval.placeholder"
+            >
+              <template #suffix>秒</template>
+            </n-input-number>
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip
+                :tip="textInfo.common.maxThreadCount.tip"
+                :text="textInfo.common.maxThreadCount.text"
+              ></Tip>
+            </template>
+            <n-input-number
+              v-model:value="config.recorder.tiktok.maxThreadCount"
+              min="1"
+              max="10"
+              step="1"
+              style="width: 220px"
+              :placeholder="textInfo.common.maxThreadCount.placeholder"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip :text="textInfo.common.waitTime.text" :tip="textInfo.common.waitTime.tip"></Tip>
+            </template>
+            <n-input-number
+              v-model:value="config.recorder.tiktok.waitTime"
+              min="0"
+              step="1"
+              style="width: 220px"
+              :placeholder="textInfo.common.waitTime.placeholder"
+            >
+              <template #suffix>毫秒</template>
+            </n-input-number>
+          </n-form-item>
+        </n-tab-pane>
       </n-tabs>
     </n-form>
     <DouyinLoginDialog v-model="showDouyinLoginDialog" @success="handleDouyinLoginSuccess" />
@@ -741,6 +841,7 @@
 <script setup lang="ts">
 import { FolderOpenOutline } from "@vicons/ionicons5";
 import { templateRef } from "@vueuse/core";
+import { useBreakpoints } from "@renderer/hooks";
 import { showDirectoryDialog } from "@renderer/utils/fileSystem";
 import { useUserInfoStore } from "@renderer/stores";
 import { useConfirm } from "@renderer/hooks";
@@ -748,13 +849,12 @@ import { useNotice } from "@renderer/hooks/useNotice";
 import { douyinApi } from "@renderer/apis";
 import DouyinLoginDialog from "./components/DouyinLoginDialog.vue";
 import {
-  // qualityOptions,
   biliQualityOptions,
   douyuQualityOptions,
   huyaQualityOptions,
   textInfo,
   biliStreamFormatOptions,
-  streamCodecOptions,
+  biliStreamCodecOptions,
   douyinQualityOptions,
   douyuSourceOptions,
   videoFormatOptions,
@@ -767,6 +867,8 @@ import {
   douyinCookieModeOptions,
   douyuStreamCodecOptions,
   douyuApiTypeOptions,
+  tiktokApiTypeOptions,
+  tiktokQualityOptions,
 } from "@renderer/enums/recorder";
 import {
   createDouyinCookieAccount,
@@ -832,6 +934,11 @@ watch(
     deep: true,
   },
 );
+
+const { isMobile } = useBreakpoints();
+const labelWidth = computed(() => {
+  return isMobile.value ? "90px" : "145px";
+});
 
 const { userList } = storeToRefs(useUserInfoStore());
 const isWeb = computed(() => window.isWeb);

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { defaultsDeep, get, cloneDeep } from "lodash-es";
+import { defaultsDeep, get, set, cloneDeep } from "lodash-es";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { APP_DEFAULT_CONFIG } from "./enum.js";
 import log from "./utils/log.js";
@@ -32,7 +32,7 @@ export default class Config extends TypedEmitter<ConfigEvents> {
   set(key: string | number, value: any) {
     this.read();
     const oldData = cloneDeep(this.data);
-    this.data[key] = value;
+    set(this.data, key, value);
     this.save();
     this.emit("update", this.data, oldData);
   }
@@ -44,7 +44,7 @@ export default class Config extends TypedEmitter<ConfigEvents> {
   }
   get(key: string | number) {
     this.read();
-    return this.data[key];
+    return get(this.data, key);
   }
   save() {
     // 保存文件
@@ -145,7 +145,9 @@ export class AppConfig extends Config {
     const initData = defaultsDeep(data, APP_DEFAULT_CONFIG);
     super.init(filepath, initData);
   }
-  get<K extends keyof AppConfigType>(key: K): AppConfigType[K] {
+  get<K extends keyof AppConfigType>(key: K): AppConfigType[K];
+  get<TPath extends string>(key: TPath): ReturnType<typeof get>;
+  get(key: keyof AppConfigType | string) {
     flushHealthPersist();
     return super.get(key);
   }
@@ -153,7 +155,9 @@ export class AppConfig extends Config {
   getDeep<TPath extends string>(path: TPath): ReturnType<typeof get> {
     return get(this.data, path);
   }
-  set<K extends keyof AppConfigType>(key: K, value: AppConfigType[K]) {
+  set<K extends keyof AppConfigType>(key: K, value: AppConfigType[K]): void;
+  set(key: string, value: any): void;
+  set(key: keyof AppConfigType | string, value: any) {
     flushHealthPersist();
     return super.set(key, value);
   }

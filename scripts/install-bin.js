@@ -254,7 +254,7 @@ async function downloadWithProgress(url, desc, options = {}) {
 
 async function downloadMesio() {
   // https://github.com/hua0512/rust-srec
-  const version = "mesio-v0.4.1";
+  const version = "mesio-v0.5.0";
   const destName = process.platform === "win32" ? "mesio.exe" : "mesio";
   const destPath = path.join("packages/app/resources/bin", destName);
   if (hasNonEmptyFile(destPath)) {
@@ -305,7 +305,7 @@ async function downloadBililiveRecorder() {
   const platform = platforms[process.platform] ?? process.platform;
   const arch = process.arch;
   const filename = `BililiveRecorder-CLI-${platform}-${arch}.zip`;
-  let url = `https://github.com/renmu123/BililiveRecorder/releases/download/v3.3.3/${filename}`;
+  let url = `https://github.com/renmu123/BililiveRecorder/releases/download/v3.4.0/${filename}`;
 
   await downloadFile(url, ".");
   await unzip(filename, "packages/app/resources/bin");

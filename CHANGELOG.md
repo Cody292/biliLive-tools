@@ -1,3 +1,61 @@
+# 3.20.0(2026.08.16)
+
+## 功能
+
+- 录制：在线观看直播
+- 支持 `--disable-gpu` 命令行参数用于禁用GPU渲染（可能会导致部分功能无法正常使用）
+- 录制：Tiktok支持“请求接口”，“cookie”参数，弹幕支持
+
+## 优化
+
+- 视频下载：优化虎牙录播失效视频的判断
+
+## Bug修复
+
+- 修复上传并发失效的bug [#521](https://github.com/renmu123/biliLive-tools/issues/521)
+- 视频下载：修复B站视频下载无法暂停的bug
+
+# 3.19.0(2026.08.02)
+
+## 功能
+
+- 录制：支持tiktok平台
+
+## 优化
+
+- 录制：B站录制支持av1选项 [#513](https://github.com/renmu123/biliLive-tools/issues/513)
+- 上传：B站上传支持显示文件大小 [#510](https://github.com/renmu123/biliLive-tools/pull/510)
+- 录制：抖音web不支持直播类型使用`mobile`优先而非`用户html解析`
+- UI：小屏幕兼容 [#517](https://github.com/renmu123/biliLive-tools/pull/517)
+- 优化B站上传以及任务队列中可能存在的内存泄漏 [#518](https://github.com/renmu123/biliLive-tools/pull/518)
+- 任务队列增加大小限制，超过限制会移除已完成的任务，默认值为300 [#518](https://github.com/renmu123/biliLive-tools/pull/518)
+
+## 其他
+
+- mesio二进制依赖升级到 0.5.0
+
+# 3.18.0(2026.07.18)
+
+## 优化
+
+- Webhook：重构上传占位符模板渲染逻辑，**可能某些场景下存在破坏性更改** [#444](https://github.com/renmu123/biliLive-tools/pull/444)
+- 录制：为“文件命名规则”选项增加额外的ejs函数来过滤四字节文本支持百度上传
+- 录制：“付费直播推送”选项目前仅对B站直播生效
+- 优化登录页的一些判断
+- 为压制页面添加教程
+
+## Bug修复
+
+- 录制：修复B站弹幕重试次数错误
+- 修复右键托盘“显示”时任务栏不会显示的bug [#502](https://github.com/renmu123/biliLive-tools/issues/502)
+- 切片：修复单个导出不存在上传预设仍提示登录的bug
+
+## 其他
+
+- 文档：增加 vitepress-plugin-llms 插件
+- 依赖升级 [#491](https://github.com/renmu123/biliLive-tools/pull/491)
+- 录播姬引擎升级至[3.4.0](https://github.com/renmu123/BililiveRecorder/releases/tag/v3.4.0)，修复某些抖音录制失败的问题
+
 # 3.17.0(2026.07.01)
 
 ## 功能

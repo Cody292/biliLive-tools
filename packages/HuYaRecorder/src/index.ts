@@ -19,6 +19,7 @@ import type {
   RecorderCreateOpts,
   RecorderProvider,
   RecordHandle,
+  VideoFileCreatedPayload,
 } from "@bililive-tools/manager";
 
 function createRecorder(opts: RecorderCreateOpts): Recorder {
@@ -63,6 +64,9 @@ function createRecorder(opts: RecorderCreateOpts): Recorder {
         quality: this.quality,
         streamPriorities: this.streamPriorities,
         sourcePriorities: this.sourcePriorities,
+        api: this.api as "auto" | "web" | "mp" | "wup", //"wup"
+        strictQuality: false,
+        formatPriorities: this.formatPriorities,
       });
       return res.currentStream;
     },
@@ -211,7 +215,12 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     },
   );
 
-  const handleVideoCreated = async ({ filename, title, cover, rawFilename }) => {
+  const handleVideoCreated = async ({
+    filename,
+    title,
+    cover,
+    rawFilename,
+  }: VideoFileCreatedPayload) => {
     this.emit("videoFileCreated", { filename, cover, rawFilename });
 
     if (title && this?.liveInfo) {

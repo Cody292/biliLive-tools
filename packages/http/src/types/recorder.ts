@@ -51,7 +51,7 @@ export type GetLiveInfoResp = LiveInfo[];
 
 export type GetRecordersArgs = {
   platform?: string;
-  recordStatus?: "recording" | "unrecorded";
+  status?: "recording" | "idle" | "check-error" | "title-blocked";
   name?: string;
   autoCheck?: string;
   page?: number;
@@ -125,6 +125,7 @@ export type UpdateRecorderArgs = Pick<
   | "cookie"
   | "douyinCookieMode"
   | "douyinCookieAccounts"
+  | "proxy"
   | "doubleScreen"
   | "onlyAudio"
   | "useServerTimestamp"
