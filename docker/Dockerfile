@@ -3,7 +3,7 @@
 # ============================================
 ARG DOCKER_IMAGE_PREFIX=
 ARG CADDY_IMAGE=docker.m.daocloud.io/library/caddy:2
-FROM ${DOCKER_IMAGE_PREFIX}node:24.10 AS base
+FROM ${DOCKER_IMAGE_PREFIX}node:24.18 AS base
 ARG NPM_REGISTRY=
 ARG NPM_FALLBACK_REGISTRY=https://registry.npmjs.org/
 ENV PNPM_HOME="/pnpm"
@@ -96,6 +96,8 @@ RUN pnpm run --filter bililive-cli build && cd packages/CLI && node ./scripts/re
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     configure-npm-registry >/dev/null && \
     pnpm --filter bililive-cli --prod --legacy deploy /app/backend-runtime \
+    && mkdir -p /app/backend-runtime/node_modules/@napi-rs \
+    && (cp -r /app/node_modules/.pnpm/@napi-rs+canvas-linux-x64-gnu*/node_modules/@napi-rs/canvas-linux-x64-gnu /app/backend-runtime/node_modules/@napi-rs/ 2>/dev/null || cp -r /app/node_modules/.pnpm/@napi-rs+canvas@*/node_modules/@napi-rs/canvas-linux-x64-gnu /app/backend-runtime/node_modules/@napi-rs/ 2>/dev/null || true) \
     && test -f /app/backend-runtime/package.json \
     && test -d /app/backend-runtime/lib \
     && test -d /app/backend-runtime/node_modules
@@ -267,7 +269,7 @@ CMD ["caddy", "run", "--config", "/app/Caddyfile"]
 # ============================================
 # 稳定 runtime 系统依赖（不依赖源码/产物 COPY，可缓存）
 # ============================================
-FROM ${DOCKER_IMAGE_PREFIX}node:24.10 AS backend-runtime-deps
+FROM ${DOCKER_IMAGE_PREFIX}node:24.18 AS backend-runtime-deps
 ARG APT_DEBIAN_MIRROR=
 ARG APT_SECURITY_MIRROR=
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
@@ -278,7 +280,7 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
     apt-get update && \
     apt-get install -y --no-install-recommends libfontconfig1-dev gosu
 
-FROM ${DOCKER_IMAGE_PREFIX}node:24.10 AS fullstack-runtime-deps
+FROM ${DOCKER_IMAGE_PREFIX}node:24.18 AS fullstack-runtime-deps
 ARG APT_DEBIAN_MIRROR=
 ARG APT_SECURITY_MIRROR=
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
@@ -313,9 +315,8 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
     xdg-utils
 
 # ============================================
-# Playwright Chromium 下载（与 frontend-build / final 装配并行）
-# 父级：fullstack-runtime-deps（系统库）+ backend-runtime（playwright-core）
-# 不依赖 frontend-build，避免浏览器下载被 final 顺序拖累
+# Playwright Chromium 下载（与 backend-build / frontend-build 并行；无需 COPY backend-runtime；固定 playwright-core@1.61.1）
+# 上轮耗时瓶颈为串行化及 apt/pnpm/playwright/github 网络传输，而非缺少 1ms 前缀
 # ============================================
 FROM fullstack-runtime-deps AS browser-download
 ARG NPM_REGISTRY=
@@ -330,22 +331,15 @@ ARG NO_PROXY=
 COPY --from=base /usr/local/bin/configure-npm-registry /usr/local/bin/configure-npm-registry
 
 WORKDIR /app
-# 仅复制 backend-runtime（含 playwright-core），用于下载 Chromium 产物
-COPY --from=backend-build /app/backend-runtime /app/backend-runtime
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 RUN --mount=type=cache,id=ms-playwright,target=/root/.cache/ms-playwright \
-    cd /app/backend-runtime && \
     if [ -n "$HTTP_PROXY" ]; then export HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" no_proxy="$NO_PROXY"; fi && \
     if [ -n "$PLAYWRIGHT_DOWNLOAD_HOST" ]; then export PLAYWRIGHT_DOWNLOAD_HOST; fi && \
-    if [ -x ./node_modules/.bin/playwright-core ]; then \
-      ./node_modules/.bin/playwright-core install chromium; \
-    else \
-      configure-npm-registry >/dev/null && \
-      npx --yes playwright-core install chromium; \
-    fi && \
     mkdir -p /ms-playwright && \
+    configure-npm-registry >/dev/null && \
+    npx --yes playwright-core@1.61.1 install chromium && \
     if [ -d /root/.cache/ms-playwright ]; then cp -a /root/.cache/ms-playwright/. /ms-playwright/; fi && \
     rm -rf /ms-playwright/chromium_headless_shell-* /ms-playwright/ffmpeg-* 2>/dev/null || true && \
     CHROME_BIN="$(find /ms-playwright -type f \( -path '*/chrome-linux64/chrome' -o -path '*/chrome-linux/chrome' \) 2>/dev/null | head -n1)" && \
