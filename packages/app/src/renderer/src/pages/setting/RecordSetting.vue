@@ -590,9 +590,17 @@
                   size="small"
                   secondary
                   :loading="!!probingMap[account.id]"
-                  :disabled="!account.cookie || !!probingMap[account.id]"
+                  :disabled="!account.cookie || !!probingMap[account.id] || !!renewingMap[account.id]"
                   @click="handleProbeAccount(account)"
                   >校验</n-button
+                >
+                <n-button
+                  size="small"
+                  secondary
+                  :loading="!!renewingMap[account.id]"
+                  :disabled="!account.id || !!renewingMap[account.id] || !!probingMap[account.id]"
+                  @click="handleSilentRenewAccount(account)"
+                  >重登</n-button
                 >
                 <n-button type="error" ghost @click="removeGlobalDouyinAccount(account.id)"
                   >删除</n-button
@@ -762,14 +770,11 @@ import {
 } from "@renderer/enums/recorder";
 import {
   createDouyinCookieAccount,
-  createDouyinScanLoginRemark,
-  findDouyinAccountIndexByApiKey,
   formatDouyinAccountUpdatedAt,
   getDouyinAccountHealthTagText,
   getDouyinAccountHealthTagType,
-  pickDouyinAccountRemark,
-  resolveDouyinApiAccountKey,
-  resolveDouyinCookieStableIdentity,
+  interpretDouyinSilentRenewResult,
+  persistDouyinScanLogin,
 } from "./douyinAccounts";
 
 import type { AppConfig, DouyinCookieAccount } from "@biliLive-tools/types";
@@ -982,7 +987,54 @@ const handleDouyinScanLogin = async () => {
 };
 
 const probingMap = ref<Record<string, boolean>>({});
+const renewingMap = ref<Record<string, boolean>>({});
 const notice = useNotice();
+
+const handleSilentRenewAccount = async (account: DouyinCookieAccount) => {
+  if (!account.id) {
+    notice.warning("账号ID未知");
+    return;
+  }
+  if (renewingMap.value[account.id]) {
+    return;
+  }
+  renewingMap.value[account.id] = true;
+  try {
+    const res = await douyinApi.silentRenew({ accountId: account.id });
+    const now = Date.now();
+    const decision = interpretDouyinSilentRenewResult(res);
+    if (decision.healthStatus !== undefined) {
+      account.healthStatus = decision.healthStatus;
+    }
+    if (decision.healthReason !== undefined) {
+      account.healthReason = decision.healthReason;
+    } else if (decision.writeCookie) {
+      account.healthReason = undefined;
+    }
+    account.healthCheckedAt = res.healthCheckedAt || now;
+    if (decision.writeCookie && res.cookie) {
+      account.cookie = res.cookie;
+    }
+    if (decision.writeUpdatedAt) {
+      account.updatedAt = res.updatedAt || formatDouyinAccountUpdatedAt();
+    }
+    emit("requestSave");
+    if (decision.noticeLevel === "success") {
+      notice.success(decision.notice);
+    } else if (decision.noticeLevel === "warning") {
+      notice.warning(decision.notice);
+    } else {
+      notice.error(decision.notice);
+    }
+    if (decision.openQr) {
+      showDouyinLoginDialog.value = true;
+    }
+  } catch (err: any) {
+    notice.error(`账号重登异常：${err?.message || "网络请求异常"}`);
+  } finally {
+    renewingMap.value[account.id] = false;
+  }
+};
 
 const handleProbeAccount = async (account: DouyinCookieAccount) => {
   if (!account.cookie) {
@@ -1017,101 +1069,23 @@ const handleProbeAccount = async (account: DouyinCookieAccount) => {
   }
 };
 
-const handleDouyinLoginSuccess = (cookie: string) => {
+const handleDouyinLoginSuccess = async (cookie: string) => {
   ensureGlobalDouyinCookieConfig();
   const accounts = config.value.recorder.douyin.accounts;
-  const stableIdentity = resolveDouyinCookieStableIdentity(cookie);
-  const existingByCookie =
-    stableIdentity !== ""
-      ? accounts.find((account) => resolveDouyinCookieStableIdentity(account.cookie) === stableIdentity)
-      : undefined;
-  // 新建：weight 保持 null（随机）；同用户：沿用 existingByCookie.weight，不覆盖
-  const targetAccount = existingByCookie ?? createDouyinCookieAccount();
-  const fallbackRemark =
-    targetAccount.remark.trim() !== "" ? targetAccount.remark : createDouyinScanLoginRemark();
-  targetAccount.cookie = cookie;
-  targetAccount.remark = fallbackRemark;
-  targetAccount.updatedAt = formatDouyinAccountUpdatedAt();
-  targetAccount.healthStatus = "healthy";
-  targetAccount.healthReason = undefined;
-  targetAccount.healthCheckedAt = Date.now();
-  if (existingByCookie === undefined) {
-    accounts.push(targetAccount);
+  const persist = await persistDouyinScanLogin({
+    accounts,
+    cookie,
+    getAccountIdentity: (nextCookie) => douyinApi.getAccountIdentity(nextCookie),
+  });
+  if (!persist.didSave) {
+    const noticeText =
+      persist.failureReason === "identity_mismatch"
+        ? "账号重登失败：登录身份与账号不一致"
+        : "扫码登录失败：无法确认身份，请重新扫码";
+    notice.error(noticeText);
+    return;
   }
   emit("requestSave");
-
-  void (async () => {
-    try {
-      const identity = await douyinApi.getAccountIdentity(cookie);
-      const apiKey = resolveDouyinApiAccountKey(identity);
-      if (apiKey !== "") {
-        targetAccount.accountUid = apiKey;
-      }
-
-      let matchIdx = -1;
-      if (apiKey !== "") {
-        matchIdx = findDouyinAccountIndexByApiKey(accounts, apiKey);
-        if (matchIdx < 0) {
-          for (let ai = 0; ai < accounts.length; ai++) {
-            const account = accounts[ai];
-            if (account === targetAccount) continue;
-            if ((account.accountUid ?? "").trim() !== "") continue;
-            try {
-              const otherIdentity = await douyinApi.getAccountIdentity(account.cookie);
-              const otherKey = resolveDouyinApiAccountKey(otherIdentity);
-              if (otherKey !== "") {
-                account.accountUid = otherKey;
-              }
-              if (otherKey !== "" && otherKey === apiKey) {
-                matchIdx = ai;
-                break;
-              }
-            } catch {
-              // 单条旧账号 identity 探测失败时跳过，继续其它账号
-            }
-          }
-        }
-      }
-      if (matchIdx < 0 && stableIdentity !== "") {
-        matchIdx = accounts.findIndex(
-          (account) => resolveDouyinCookieStableIdentity(account.cookie) === stableIdentity,
-        );
-      }
-      if (matchIdx < 0) {
-        matchIdx = accounts.findIndex(
-          (account) => account === targetAccount || account.id === targetAccount.id,
-        );
-      }
-      if (matchIdx < 0) {
-        return;
-      }
-
-      const kept = accounts[matchIdx];
-      const baseRemark = kept.remark.trim() !== "" ? kept.remark : fallbackRemark;
-      const enrichedRemark = pickDouyinAccountRemark(identity, baseRemark);
-      kept.cookie = cookie;
-      kept.remark = enrichedRemark;
-      // 同用户合并：刷新日期；保留 kept.weight，不覆盖为 null/随机/1
-      kept.updatedAt = formatDouyinAccountUpdatedAt();
-      kept.healthStatus = "healthy";
-      kept.healthReason = undefined;
-      kept.healthCheckedAt = Date.now();
-      if (apiKey !== "") {
-        kept.accountUid = apiKey;
-      }
-      if (kept !== targetAccount) {
-        const targetIdx = accounts.findIndex(
-          (account) => account === targetAccount || account.id === targetAccount.id,
-        );
-        if (targetIdx >= 0 && targetIdx !== matchIdx) {
-          accounts.splice(targetIdx, 1);
-        }
-      }
-      emit("requestSave");
-    } catch {
-      // identity 失败不影响已完成的 Cookie 入池
-    }
-  })();
 };
 </script>
 

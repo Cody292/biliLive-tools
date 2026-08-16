@@ -107,6 +107,30 @@ export interface DouyinAccountProbeResult {
   readonly message?: string;
 }
 
+export type DouyinSilentRenewFailureClass =
+  | "auth_expired"
+  | "engine_unavailable"
+  | "lock_busy"
+  | "profile_error"
+  | "network_timeout"
+  | "not_rotated"
+  | "identity_mismatch"
+  | "unknown";
+
+export interface DouyinSilentRenewParams {
+  readonly accountId: string;
+}
+
+export interface DouyinSilentRenewResult {
+  readonly ok: boolean;
+  readonly message: string;
+  readonly healthStatus?: DouyinAccountHealthStatus;
+  readonly failureClass?: DouyinSilentRenewFailureClass;
+  readonly healthCheckedAt?: number;
+  readonly updatedAt?: string;
+  readonly cookie?: string;
+}
+
 const qrcode = async (): Promise<DouyinLoginWaitingResult | DouyinLoginManualVerificationResult> => {
   const res = await request.post("/douyin/login");
   return res.data;
@@ -138,6 +162,14 @@ const probeAccount = async (
   params: DouyinAccountProbeParams,
 ): Promise<DouyinAccountProbeResult> => {
   const res = await request.post("/douyin/account/probe", params);
+  return res.data;
+};
+
+export const silentRenew = async (
+  params: string | DouyinSilentRenewParams,
+): Promise<DouyinSilentRenewResult> => {
+  const payload = typeof params === "string" ? { accountId: params } : params;
+  const res = await request.post("/douyin/account/silent-renew", payload);
   return res.data;
 };
 
@@ -257,6 +289,7 @@ const douyin = {
   submitSms,
   getAccountIdentity,
   probeAccount,
+  silentRenew,
   formatDouyinCookieHeader,
   isDouyinLoginDiagnostic,
   openManualVerificationStream,

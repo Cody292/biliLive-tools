@@ -115,3 +115,102 @@ export const findDouyinAccountIndexByApiKey = (
   if (key === "") return -1;
   return accounts.findIndex((account) => pickText(account.accountUid) === key);
 };
+
+export type {
+  DouyinSilentRenewInterpretInput,
+  DouyinSilentRenewUiDecision,
+} from "./douyinSilentRenewInterpret";
+export { interpretDouyinSilentRenewResult } from "./douyinSilentRenewInterpret";
+
+export type PersistDouyinScanLoginParams = {
+  readonly accounts: DouyinCookieAccount[];
+  readonly cookie: string;
+  readonly getAccountIdentity: (cookie: string) => Promise<DouyinAccountIdentity>;
+};
+
+export type PersistDouyinScanLoginResult = {
+  readonly didSave: boolean;
+  readonly accounts: DouyinCookieAccount[];
+  readonly failureReason?: "identity_unavailable" | "identity_empty" | "identity_mismatch";
+};
+
+const identityMatchesBoundUid = (
+  accountUid: string | undefined,
+  identity: DouyinAccountIdentity,
+): boolean => {
+  const bound = pickText(accountUid);
+  if (bound === "") return true;
+  return bound === pickText(identity.uid) || bound === pickText(identity.sec_user_id);
+};
+
+const applyScanLoginToAccount = (params: {
+  readonly account: DouyinCookieAccount;
+  readonly cookie: string;
+  readonly identity: DouyinAccountIdentity;
+  readonly apiKey: string;
+}): void => {
+  const fallbackRemark =
+    params.account.remark.trim() !== "" ? params.account.remark : createDouyinScanLoginRemark();
+  params.account.cookie = params.cookie;
+  params.account.accountUid = params.apiKey;
+  params.account.updatedAt = formatDouyinAccountUpdatedAt();
+  params.account.healthStatus = "healthy";
+  params.account.healthReason = undefined;
+  params.account.healthCheckedAt = Date.now();
+  params.account.remark = pickDouyinAccountRemark(params.identity, fallbackRemark);
+};
+
+/** 扫码落盘：必须先等 identity；失败不入池。同用户合并且不改 weight。 */
+export const persistDouyinScanLogin = async (
+  params: PersistDouyinScanLoginParams,
+): Promise<PersistDouyinScanLoginResult> => {
+  const { accounts, cookie, getAccountIdentity } = params;
+
+  let identity: DouyinAccountIdentity;
+  try {
+    identity = await getAccountIdentity(cookie);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return { didSave: false, accounts, failureReason: "identity_unavailable" };
+  }
+
+  const apiKey = resolveDouyinApiAccountKey(identity);
+  if (apiKey === "") {
+    return { didSave: false, accounts, failureReason: "identity_empty" };
+  }
+
+  const stableIdentity = resolveDouyinCookieStableIdentity(cookie);
+  const byCookie =
+    stableIdentity === ""
+      ? -1
+      : accounts.findIndex(
+          (account) => resolveDouyinCookieStableIdentity(account.cookie) === stableIdentity,
+        );
+
+  if (byCookie >= 0) {
+    const existing = accounts[byCookie];
+    if (existing === undefined) {
+      return { didSave: false, accounts, failureReason: "identity_unavailable" };
+    }
+    if (!identityMatchesBoundUid(existing.accountUid, identity)) {
+      return { didSave: false, accounts, failureReason: "identity_mismatch" };
+    }
+    applyScanLoginToAccount({ account: existing, cookie, identity, apiKey });
+    return { didSave: true, accounts };
+  }
+
+  const byApiKey = findDouyinAccountIndexByApiKey(accounts, apiKey);
+  if (byApiKey >= 0) {
+    const existing = accounts[byApiKey];
+    if (existing === undefined) {
+      return { didSave: false, accounts, failureReason: "identity_unavailable" };
+    }
+    applyScanLoginToAccount({ account: existing, cookie, identity, apiKey });
+    return { didSave: true, accounts };
+  }
+
+  const created = createDouyinCookieAccount();
+  applyScanLoginToAccount({ account: created, cookie, identity, apiKey });
+  accounts.push(created);
+  return { didSave: true, accounts };
+};
