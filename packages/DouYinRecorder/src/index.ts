@@ -62,6 +62,44 @@ export type {
   ProbeOnceResult,
 } from "./cookieAccountSelection.js";
 
+export {
+  PROBE_C_ACCOUNT_GAP_MS,
+  PROBE_C_AUTH_INVALID_THRESHOLD,
+  PROBE_C_AUTH_RELOGIN_THRESHOLD,
+  PROBE_C_IDLE_INTERVAL_MS,
+  clearDefaultProbeCAuthCounter,
+  createProbeCAuthCounter,
+  getDefaultProbeCAuthCounter,
+  getProbeCAccountsGetter,
+  isProbeCIdlePatrolEnabled,
+  isProbeCIdlePatrolRunning,
+  mapProbeCResultToHealthPatch,
+  resetProbeCStateForTests,
+  runProbeCIdleRound,
+  setDouyinProbeCOnce,
+  setProbeCAccountsGetter,
+  setProbeCIdlePatrolEnabled,
+  shouldProbeCIdleAccount,
+  startProbeCIdlePatrol,
+  stopProbeCIdlePatrol,
+  wireProbeCHost,
+} from "./probeC.js";
+export type {
+  ProbeCAuthCountState,
+  ProbeCAuthCounter,
+  ProbeCEscalation,
+  ProbeCIdleRoundItem,
+  ProbeCIdleSkipReason,
+  ProbeCMapResult,
+  ProbeCSleepFn,
+  ResetProbeCStateOptions,
+  RunProbeCIdleRoundOpts,
+  StartProbeCIdlePatrolOpts,
+  WireProbeCHostOpts,
+} from "./probeC.js";
+
+export { mapLayer1ProbeResultToHealthPatch } from "./probeB.js";
+
 const douyinDanmaHosts = [
   "webcast100-ws-web-hl.douyin.com",
   "webcast100-ws-web-lf.douyin.com",

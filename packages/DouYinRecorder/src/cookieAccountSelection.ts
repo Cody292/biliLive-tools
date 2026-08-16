@@ -246,10 +246,12 @@ export function getHealthPatchScheduler(): HealthPatchScheduler | null {
 }
 
 // 探针 B re-export（保持 cookieAccountSelection 单一导入面）
+// 层1 maybeProbeAccount 已走 probeC 2/3 阶梯；mapProbeResultToHealthPatch 仍为单次兼容映射
 export {
   CHECK_WINDOW_MS,
   MIN_PROBE_INTERVAL_MS,
   isPastCheckWindow,
+  mapLayer1ProbeResultToHealthPatch,
   mapProbeResultToHealthPatch,
   maybeProbeAccount,
   probeAccountsNeedingCheck,

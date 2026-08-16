@@ -1,5 +1,6 @@
 /**
  * 探针 B：可分类 probeOnce 注入 + shouldProbe + 30s 限流。
+ * 层1 任务联动路径：probeOnce 结果走探针 C 升级阶梯（auth_failed 2/3）。
  * 不静态依赖 http/shared（包环）；probeOnce / schedulePatch 经注入。
  */
 import {
@@ -11,6 +12,13 @@ import {
   type DouyinCookieAccountLike,
   type HealthPatchScheduler,
 } from "./cookieAccountSelection.js";
+import {
+  getDefaultProbeCAuthCounter,
+  mapProbeCResultToHealthPatch,
+  type ProbeCAuthCounter,
+  type ProbeCEscalation,
+  type ProbeCMapResult,
+} from "./probeCCore.js";
 
 export const CHECK_WINDOW_MS = 12 * 60 * 60 * 1000;
 export const MIN_PROBE_INTERVAL_MS = 30_000;
@@ -78,7 +86,10 @@ function isProbeOnceFail(result: ProbeOnceResult): result is ProbeOnceFail {
   return result.ok === false;
 }
 
-/** ok→healthy；auth_failed→invalid；timeout/network 仅 reason（永不 relogin_required） */
+/**
+ * 兼容映射：单次结果 → patch（不含 C 连续计数）。
+ * 层1 实际写盘请用 mapLayer1ProbeResultToHealthPatch / maybeProbeAccount。
+ */
 export function mapProbeResultToHealthPatch(
   result: ProbeOnceResult,
   now: number = Date.now(),
@@ -102,6 +113,25 @@ export function mapProbeResultToHealthPatch(
   };
 }
 
+/**
+ * 层1：probeOnce 结果走 C 阶梯（2×auth_failed→invalid，3×→relogin_required）。
+ * 与探针 A markAuthFailure 计数隔离；均不改 enabled。
+ */
+export function mapLayer1ProbeResultToHealthPatch(
+  result: ProbeOnceResult,
+  accountId: string,
+  now: number = Date.now(),
+  authCounter: ProbeCAuthCounter = getDefaultProbeCAuthCounter(),
+): ProbeCMapResult {
+  const mapped = mapProbeCResultToHealthPatch(
+    result,
+    authCounter.getState(accountId),
+    now,
+  );
+  authCounter.setState(accountId, mapped.nextCount);
+  return mapped;
+}
+
 export type MaybeProbeSkipReason =
   | "no_probe_fn"
   | "should_not_probe"
@@ -116,6 +146,7 @@ export type MaybeProbeResult =
       kind: "probed";
       result: ProbeOnceResult;
       patch: DouyinAccountHealthPatch;
+      escalated?: ProbeCEscalation;
     };
 
 export type MaybeProbeAccountInput = {
@@ -125,6 +156,7 @@ export type MaybeProbeAccountInput = {
   force?: boolean;
   probe?: DouyinProbeOnceFn;
   schedulePatch?: HealthPatchScheduler;
+  authCounter?: ProbeCAuthCounter;
 };
 
 export async function maybeProbeAccount(
@@ -159,7 +191,13 @@ export async function maybeProbeAccount(
 
   lastProbeStartedAt = now;
   const result = await probe(cookie);
-  const patch = mapProbeResultToHealthPatch(result, now);
+  const mapped = mapLayer1ProbeResultToHealthPatch(
+    result,
+    accountId,
+    now,
+    input.authCounter ?? getDefaultProbeCAuthCounter(),
+  );
+  const patch = mapped.patch;
 
   if (Array.isArray(input.accounts)) {
     const idx = input.accounts.findIndex((a) => a?.id === accountId);
@@ -173,7 +211,7 @@ export async function maybeProbeAccount(
   const schedule = input.schedulePatch ?? getHealthPatchScheduler();
   schedule?.({ accountId, patch });
 
-  return { kind: "probed", result, patch };
+  return { kind: "probed", result, patch, escalated: mapped.escalated };
 }
 
 export type ProbeAccountsNeedingCheckInput = {
