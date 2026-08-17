@@ -332,7 +332,7 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
   }
 
   async decode(data: Buffer) {
-    const douyinProto = protobuf as DouyinProtoModule;
+    const douyinProto = protobuf as unknown as DouyinProtoModule;
     const PushFrame = douyinProto.douyin.PushFrame;
     const Response = douyinProto.douyin.Response;
     const ChatMessage = douyinProto.douyin.ChatMessage;
