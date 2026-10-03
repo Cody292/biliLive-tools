@@ -7,6 +7,7 @@ import commonApi from "./common";
 import fileBrowserApi from "./fileBrowser";
 import biliApi from "./bili";
 import douyinApi from "./douyin";
+import douyuApi from "./douyu";
 import api from "./request";
 import videoApi from "./video";
 import recordHistoryApi from "./recordHistory";
@@ -24,6 +25,7 @@ export {
   fileBrowserApi,
   biliApi,
   douyinApi,
+  douyuApi,
   api,
   videoApi,
   syncApi,

@@ -20,6 +20,7 @@ import SSERouter from "./routes/sse.js";
 import recocderRouter, { handleRecorderUpgrade } from "./routes/recorder.js";
 import biliRouter from "./routes/bili.js";
 import douyinRouter from "./routes/douyin.js";
+import douyuRouter from "./routes/douyu.js";
 import taskRouter from "./routes/task.js";
 import assetsRouter from "./routes/assets.js";
 import videoRouter from "./routes/video.js";
@@ -219,6 +220,7 @@ export async function serverStart(
   app.use(recocderRouter.routes());
   app.use(biliRouter.routes());
   app.use(douyinRouter.routes());
+  app.use(douyuRouter.routes());
   app.use(taskRouter.routes());
   app.use(videoRouter.routes());
   app.use(recordHistoryRouter.routes());

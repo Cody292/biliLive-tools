@@ -3,6 +3,7 @@ import { get } from "lodash-es";
 
 import type { AppConfig } from "../config.js";
 import { getCookie } from "../task/bili.js";
+import { readDouyuUser } from "./douyu.js";
 
 // 定义独立配置类
 export default class RecorderConfig {
@@ -43,7 +44,12 @@ export default class RecorderConfig {
         return settingRecord[key];
       } else {
         if (key === "uid") {
-          return get(globalConfig, "bilibili.uid");
+          if (setting.providerId === "Bilibili") {
+            return get(globalConfig, "bilibili.uid");
+          } else if (setting.providerId === "DouYu") {
+            return get(globalConfig, "douyu.uid");
+          }
+          return setting?.uid;
         } else if (key === "useM3U8Proxy") {
           return get(globalConfig, "bilibili.useM3U8Proxy");
         } else if (key === "formatName") {
@@ -86,9 +92,7 @@ export default class RecorderConfig {
         } else if (key === "source") {
           return get(globalConfig, "douyu.source");
         } else if (key === "cookie") {
-          if (setting.providerId === "DouYu") {
-            return get(globalConfig, "douyu.cookie");
-          } else if (setting.providerId === "DouYin") {
+          if (setting.providerId === "DouYin") {
             return get(globalConfig, "douyin.cookie");
           } else if (setting.providerId === "XHS") {
             return get(globalConfig, "xhs.cookie");
@@ -212,7 +216,14 @@ export default class RecorderConfig {
         }
       }
     } else if (setting.providerId === "DouYu") {
-      auth = getValue("cookie");
+      uid = getValue("uid");
+      if (uid) {
+        try {
+          auth = readDouyuUser(Number(uid))?.loginCookies.main;
+        } catch (error) {
+          console.error(error);
+        }
+      }
     } else if (setting.providerId === "DouYin") {
       const cookieMode = getValue("douyinCookieMode") ?? "always";
       const accounts = (getValue("douyinCookieAccounts") ?? []) as Array<{
