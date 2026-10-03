@@ -523,6 +523,10 @@ export const textInfo = {
       tip: "如果直播间标题包含这些关键词，则不会自动录制，多个关键词请用英文逗号分隔，或者使用正则表达式（如：/回放|录播/i），手动录制的不会被影响",
       placeholder: "例如：回放,录播,重播 或 /回放|录播/i",
     },
+    segmentOnTitleChange: {
+      text: "标题变更时分段",
+      tip: "监听到直播间标题变更时创建新分段；录播姬引擎支持无损分割，其他引擎会中断录制",
+    },
   },
   douyu: {
     qualityRetry: qualityRetry,
@@ -534,6 +538,10 @@ export const textInfo = {
     api: {
       text: "请求接口",
       tip: `自动使用新接口，除了新接口额外支持hevc之外，我也不知道有啥区别，但还是保留了此选项`,
+    },
+    cookie: {
+      text: "Cookie",
+      tip: "2026.9.21 日起，斗鱼web接口已经无法获取最高画质，以及录制流过期时间为五分钟，你需要添加cookie来避免问题",
     },
   },
   huya: {

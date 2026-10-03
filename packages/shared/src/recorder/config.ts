@@ -86,7 +86,11 @@ export default class RecorderConfig {
         } else if (key === "source") {
           return get(globalConfig, "douyu.source");
         } else if (key === "cookie") {
-          if (setting.providerId === "XHS") {
+          if (setting.providerId === "DouYu") {
+            return get(globalConfig, "douyu.cookie");
+          } else if (setting.providerId === "DouYin") {
+            return get(globalConfig, "douyin.cookie");
+          } else if (setting.providerId === "XHS") {
             return get(globalConfig, "xhs.cookie");
           } else if (setting.providerId === "TikTok") {
             return get(globalConfig, "tiktok.cookie");
@@ -142,6 +146,11 @@ export default class RecorderConfig {
           } else {
             return undefined;
           }
+        } else if (key === "segmentOnTitleChange") {
+          if (setting.providerId === "Bilibili") {
+            return get(globalConfig, "bilibili.segmentOnTitleChange");
+          }
+          return false;
         } else {
           return get(globalConfig, key);
         }
@@ -202,6 +211,8 @@ export default class RecorderConfig {
           console.error(error);
         }
       }
+    } else if (setting.providerId === "DouYu") {
+      auth = getValue("cookie");
     } else if (setting.providerId === "DouYin") {
       const cookieMode = getValue("douyinCookieMode") ?? "always";
       const accounts = (getValue("douyinCookieAccounts") ?? []) as Array<{
@@ -287,6 +298,7 @@ export default class RecorderConfig {
       recorderType: getValue("recorderType") ?? "ffmpeg",
       auth: auth,
       useM3U8Proxy: getValue("useM3U8Proxy") ?? false,
+      segmentOnTitleChange: getValue("segmentOnTitleChange") ?? false,
       useServerTimestamp: getValue("useServerTimestamp") ?? true,
       formatName: formatName,
       codecName: getValue("codecName") ?? "auto",

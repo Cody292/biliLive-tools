@@ -68,6 +68,7 @@ export const recorderNoGlobalFollowFields: Array<
   "formatName",
   "useM3U8Proxy",
   "customHost",
+  "segmentOnTitleChange",
   "codecName",
   "source",
   "videoFormat",
@@ -433,6 +434,8 @@ interface BilibiliRecorderConfig extends RecorderCheckConfig {
   codecName: CodecName;
   /** 自定义host */
   customHost?: string;
+  /** 直播间标题变更时分段 */
+  segmentOnTitleChange: boolean;
 }
 interface DouyuRecorderConfig extends RecorderCheckConfig {
   /** 画质：0：原画 2：高清 3：超清 4：蓝光4M 8：蓝光8M */
@@ -441,6 +444,8 @@ interface DouyuRecorderConfig extends RecorderCheckConfig {
   /** 流编码 */
   codecName: CodecName;
   api: "auto" | "newAPI" | "oldAPI";
+  /** 斗鱼 Cookie */
+  cookie: string;
 }
 
 interface HuyaRecorderConfig extends RecorderCheckConfig {
@@ -612,6 +617,8 @@ export interface Recorder {
    * 2. 正则表达式：'/pattern/flags'（如：'/回放|录播/i'）
    */
   titleKeywords?: string;
+  /** B站直播间标题变更时分段 */
+  segmentOnTitleChange?: boolean;
   /** 开播推送 */
   liveStartNotification?: boolean;
   /** 充电直播(付费/DRM 加密直播)检测推送 */
@@ -620,7 +627,7 @@ export interface Recorder {
   liveEndNotification?: boolean;
   /** 权重 */
   weight: number;
-  /** 抖音、TikTok cookie */
+  /** 平台 Cookie */
   cookie?: string;
   /** 抖音cookie模式（直播间可覆盖全局） */
   douyinCookieMode?: DouyinCookieMode;
@@ -699,6 +706,8 @@ export interface AppConfig {
   /** 主题 */
   theme: Theme;
   menuBarVisible: boolean;
+  /** 阻止系统进入休眠（仅 Electron 客户端） */
+  preventSystemSleep: boolean;
   port: number;
   host: string;
   passKey: string;
@@ -1163,6 +1172,10 @@ export interface BiliupConfig {
   human_type2?: number;
   /** 定时发布：10位秒级时间戳。必须距离提交时间>7200秒 */
   dtime?: number;
+  /** 关联预约 */
+  act_reserve?: { sid: number };
+  /** 联合投稿 */
+  staffs?: Array<{ title: string; mid: number; name?: string }>;
   // 表示按照cid顺序上传，编辑接口会根据这个参数对pathArray进行排序后上传，如果没有这个参数，则按照pathArray的顺序上传
   sortByCid?: Array<number>;
   // 创作声明，仅当copyright=1、3时有效，// -1: 内容无需标注，1: 含AI生成内容，2：含虚构演绎内容，3：内容含营销信息，4：个人观点，仅供参考

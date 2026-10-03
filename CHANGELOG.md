@@ -1,3 +1,65 @@
+# 3.22.1(2026.09.21)
+
+## 优化
+
+2026.9.21 日起，斗鱼web接口已经无法获取最高画质，以及录制流过期时间为五分钟，你需要添加cookie来避免问题
+
+- 斗鱼支持cookie参数（仅在获取流接口时启用） [#562](https://github.com/renmu123/biliLive-tools/pull/562)
+
+# 3.22.0(2026.09.21)
+
+## 功能
+
+- B站上传：添加联合投稿功能 [#557](https://github.com/renmu123/biliLive-tools/pull/557)
+- 录制：某些场景下优化抖音流连续失效时切换流格式来支持录制 [#559](https://github.com/renmu123/biliLive-tools/pull/559)
+
+## 优化
+
+- 优化“高能弹幕条”渲染时间及内存优化
+- 录制：B站录制兼容 `SEND_GIFT_V2` 礼物类型
+- 录制：优化tiktok的会员直播判断为不在线
+- 录制：优化B站上传 [#555](https://github.com/renmu123/biliLive-tools/pull/555)
+- B站上传：自动线路默认屏蔽掉 `cs-bldsa`
+
+## Bug修复
+
+- 录制：修复xhs内部的解析错误 [#556](https://github.com/renmu123/biliLive-tools/pull/556)
+- 切片：修复修改字幕颜色后渲染失败的bug
+- 切片：修复字幕配置加载时使用初始化值的bug
+
+# 其他
+
+- 依赖：`@napi-rs/canvas` 升级至 `1.0.9`
+
+# 3.21.0(2026.09.06)
+
+## 功能
+
+- 录制：B站支持“标题变更时分段”选项 [#533](https://github.com/renmu123/biliLive-tools/issues/533)
+- 客户端新增“阻止系统休眠”选项支持 [#533](https://github.com/renmu123/biliLive-tools/issues/533)
+- 视频封面支持修改，如添加文字等操作 [#536](https://github.com/renmu123/biliLive-tools/pull/536)
+- 切片：优化字幕功能 [#544](https://github.com/renmu123/biliLive-tools/pull/544)
+- B站视频上传：添加关联预约功能 [#548](https://github.com/renmu123/biliLive-tools/pull/548)
+
+## 优化
+
+- docker环境下，当存在`录播姬工作目录`时不再强制使用路径`/app/video`
+- docker环境下，“删除至回收站”不会生效
+- 切片：歌词优化等功能显式关闭深度思考，加长超时时间为300s
+
+## Bug修复
+
+- 录制：修复“观看直播”功能无法在客户端使用的bug
+- 录制：优化某些情况下无法观看直播仍跳出播放器的bug
+- 切片：修复“歌曲识别”失败的bug
+- 切片：修复“歌词识别”错误使用“字幕识别”模型的bug
+- 录制：修复B站“禁止标题关键词”参数无效的bug [#551](https://github.com/renmu123/biliLive-tools/pull/551)
+
+## 其他
+
+- `ntsuspend`修改为可选依赖
+- 依赖；升级使用typescript7
+
 # 3.20.0(2026.08.16)
 
 ## 功能

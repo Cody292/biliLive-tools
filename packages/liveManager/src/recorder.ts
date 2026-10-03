@@ -103,6 +103,8 @@ export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
    * 2. 正则表达式：'/pattern/flags'（如：'/回放|录播/i'）
    */
   titleKeywords?: string;
+  /** B站直播间标题变更时分段 */
+  segmentOnTitleChange?: boolean;
   /** 用于指定录制文件格式，auto时，分段使用ts，不分段使用mp4 */
   videoFormat?: "auto" | "ts" | "mkv" | "flv";
   /** 录制类型 */
@@ -143,6 +145,7 @@ export type SerializedRecorder<E extends AnyObject> = PickRequired<RecorderCreat
     | "liveInfo"
     | "uid"
     | "titleKeywords"
+    | "segmentOnTitleChange"
     // | "recordHandle"
   >;
 
@@ -165,6 +168,11 @@ export interface RecorderTimelineItem {
 export interface AppendRecorderTimelineArgs {
   startTime?: number;
   text: string;
+}
+
+export interface StreamRetryHint {
+  liveId: string;
+  preferAlternativeStream: boolean;
 }
 
 export interface RecordHandle {
@@ -267,6 +275,8 @@ export interface Recorder<E extends AnyObject = UnknownObject>
       getSavePath: GetSavePath;
       banLiveId?: string;
       isManualStart?: boolean;
+      /** 上一次使用的流疑似不可用，录制器可在同一场直播中优先尝试备用流 */
+      streamRetryHint?: StreamRetryHint;
     },
   ) => Promise<RecordHandle | null>;
   // 正在进行的录制的操作接口

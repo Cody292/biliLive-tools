@@ -266,6 +266,15 @@
           <n-form-item>
             <template #label>
               <Tip
+                :text="textInfo.bili.segmentOnTitleChange.text"
+                :tip="textInfo.bili.segmentOnTitleChange.tip"
+              ></Tip>
+            </template>
+            <n-switch v-model:value="config.recorder.bilibili.segmentOnTitleChange" />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip
                 tip="使用批量检查直播状态接口，如果你录制了大量的直播间，可以尝试开启此选项，减少被风控的可能性"
                 text="批量查询接口"
               ></Tip>
@@ -352,6 +361,24 @@
               v-model:value="config.recorder.douyu.codecName"
               :options="douyuStreamCodecOptions"
             />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip :text="textInfo.douyu.cookie.text" :tip="textInfo.douyu.cookie.tip"></Tip>
+            </template>
+            <n-input
+              v-model:value="config.recorder.douyu.cookie"
+              type="password"
+              show-password-on="click"
+            />
+            <n-button
+              v-if="!isWeb"
+              type="primary"
+              style="margin-left: 10px"
+              @click="douyuLogin"
+              title="登录后退出即可获取cookie"
+              >登录</n-button
+            >
           </n-form-item>
 
           <div class="divider"></div>
@@ -515,7 +542,7 @@
             <template #label>
               <Tip
                 text="Cookie模式"
-                tip="关闭：录制流程不注入 Cookie；启用：录制中持续注入 Cookie，并在账号池 Cookie 失败后尝试切换到下一个启用账号。旧版仅保存礼物配置会自动按启用处理。"
+                tip="关闭：录制流程不注入 Cookie；启用：录制中持续注入 Cookie，并在账号池 Cookie 失败后尝试切换到下一个启用账号。旧版仅保存礼物配置会自动按启用处理。使用 mobile 接口时 Cookie 不会被应用。"
               ></Tip>
             </template>
             <n-select
@@ -671,7 +698,11 @@
             <template #label>
               <Tip text="Cookie" tip="用于自动监听"></Tip>
             </template>
-            <n-input v-model:value="config.recorder.xhs.cookie" type="password" />
+            <n-input
+              v-model:value="config.recorder.xhs.cookie"
+              type="password"
+              show-password-on="click"
+            />
             <n-button
               v-if="!isWeb"
               type="primary"
@@ -770,7 +801,11 @@
             <template #label>
               <Tip text="Cookie" tip="遇到年龄限制或风控时可填写 TikTok Cookie"></Tip>
             </template>
-            <n-input v-model:value="config.recorder.tiktok.cookie" type="password" />
+            <n-input
+              v-model:value="config.recorder.tiktok.cookie"
+              type="password"
+              show-password-on="click"
+            />
           </n-form-item>
           <n-form-item>
             <template #label>
@@ -1193,6 +1228,14 @@ const handleDouyinLoginSuccess = async (cookie: string) => {
     return;
   }
   emit("requestSave");
+};
+
+const douyuLogin = async () => {
+  const status = await confirmCookieLoginRisk("斗鱼");
+  if (!status) return;
+
+  const cookie = await window.api.cookie.douyuLogin();
+  config.value.recorder.douyu.cookie = cookie;
 };
 </script>
 

@@ -63,9 +63,9 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/StreamGet/package.json ./packages/StreamGet/
 COPY packages/types/package.json ./packages/types/
 COPY packages/XHSRecorder/package.json ./packages/XHSRecorder/
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store,sharing=locked \
     configure-npm-registry >/dev/null && \
-    pnpm install --frozen-lockfile --ignore-scripts
+    pnpm install --store-dir=/pnpm/store --frozen-lockfile --ignore-scripts
 # 仅复制 docker 运行配置（final 阶段 --from=base 需要）；业务源码不进 base，避免 COPY 抖动击穿 install 缓存语义之外的共享层
 COPY docker ./docker
 

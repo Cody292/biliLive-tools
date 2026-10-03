@@ -47,6 +47,15 @@
             >
             </n-input>
           </n-form-item>
+          <n-form-item v-if="config.providerId === 'XHS'">
+            <template #label>
+              <Tip
+                text="小红书号"
+                tip="如果需要使用cookie，那么这个选项必须填写，否则无法使用cookie"
+              ></Tip>
+            </template>
+            <n-input v-model:value.trim="xhsRedId" placeholder="请输入小红书号（可选）" />
+          </n-form-item>
           <n-form-item :disabled="isEdit">
             <template #label>
               <span class="inline-flex"> 备注 </span>
@@ -117,6 +126,24 @@
                 placeholder="请输入分段参数"
               />
               <n-checkbox v-model:checked="globalFieldsObj.segment" class="global-checkbox"
+                >全局</n-checkbox
+              >
+            </n-form-item>
+
+            <n-form-item v-if="config.providerId === 'Bilibili'">
+              <template #label>
+                <Tip
+                  :text="textInfo.bili.segmentOnTitleChange.text"
+                  :tip="textInfo.bili.segmentOnTitleChange.tip"
+                ></Tip>
+              </template>
+              <n-switch
+                v-model:value="config.segmentOnTitleChange"
+                :disabled="globalFieldsObj.segmentOnTitleChange"
+              />
+              <n-checkbox
+                v-model:checked="globalFieldsObj.segmentOnTitleChange"
+                class="global-checkbox"
                 >全局</n-checkbox
               >
             </n-form-item>
@@ -325,6 +352,19 @@
             </n-form-item>
             <n-form-item>
               <template #label>
+                <Tip :text="textInfo.douyu.cookie.text" :tip="textInfo.douyu.cookie.tip"></Tip>
+              </template>
+              <n-input
+                v-model:value="config.cookie"
+                type="password"
+                :disabled="globalFieldsObj.cookie"
+              />
+              <n-checkbox v-model:checked="globalFieldsObj.cookie" class="global-checkbox"
+                >全局</n-checkbox
+              >
+            </n-form-item>
+            <n-form-item>
+              <template #label>
                 <Tip
                   :text="textInfo.common.titleKeywords.text"
                   :tip="textInfo.common.titleKeywords.tip"
@@ -467,7 +507,7 @@
             </n-form-item>
             <n-form-item>
               <template #label>
-                <Tip text="Cookie模式" tip="关闭时不注入 Cookie；启用时录制中持续注入 Cookie，旧版仅保存礼物配置会自动按启用处理。"></Tip>
+                <Tip text="Cookie模式" tip="关闭时不注入 Cookie；启用时录制中持续注入 Cookie，旧版仅保存礼物配置会自动按启用处理。使用 mobile 接口时 Cookie 不会被应用。"></Tip>
               </template>
               <n-select
                 v-model:value="config.douyinCookieMode"
@@ -892,6 +932,7 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
     formatName: true,
     useM3U8Proxy: true,
     customHost: true,
+    segmentOnTitleChange: true,
     codecName: true,
     source: true,
     videoFormat: true,
@@ -909,6 +950,13 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
 
 const recordConfig = cloneDeep(defaultRecordConfig);
 const config = ref(recordConfig);
+const xhsRedId = computed({
+  get: () => String(config.value.uid ?? "").split("-")[1] ?? "",
+  set: (value: string) => {
+    const roomId = String(config.value.uid ?? "").split("-")[0];
+    config.value.uid = `${roomId}-${value}`;
+  },
+});
 
 const createDouyinCookieAccount = (): DouyinCookieAccount => ({
   id: `dy-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -964,6 +1012,16 @@ const confirm = async () => {
       content: `B站录制高清画质需要设置账号，你可能尚未设置，尽可能使用使用小号，使用此功能默认需要你为可能的风控负责，是否继续？`,
       showCheckbox: true,
       showAgainKey: "recorder-bili-account",
+    });
+    if (!status) return;
+  }
+
+  if (config.value.providerId === "DouYu" && !config.value.cookie) {
+    const [status] = await confirmDialog.warning({
+      title: "确认添加",
+      content: `斗鱼录制高清画质需要设置Cookie，未设置Cookie也会导致流过期时间为五分钟，你可能尚未设置，尽可能使用使用小号，使用此功能默认需要你为可能的风控负责，是否继续？`,
+      showCheckbox: true,
+      showAgainKey: "recorder-douyu-account",
     });
     if (!status) return;
   }
@@ -1043,6 +1101,9 @@ const initGlobalFields = () => {
     formatName: !(config.value?.noGlobalFollowFields ?? []).includes("formatName"),
     useM3U8Proxy: !(config.value?.noGlobalFollowFields ?? []).includes("useM3U8Proxy"),
     customHost: !(config.value?.noGlobalFollowFields ?? []).includes("customHost"),
+    segmentOnTitleChange: !(config.value?.noGlobalFollowFields ?? []).includes(
+      "segmentOnTitleChange",
+    ),
     codecName: !(config.value?.noGlobalFollowFields ?? []).includes("codecName"),
     source: !(config.value?.noGlobalFollowFields ?? []).includes("source"),
     videoFormat: !(config.value?.noGlobalFollowFields ?? []).includes("videoFormat"),
@@ -1159,7 +1220,9 @@ watch(
       config.value.recorderType = appConfig.value.recorder.recorderType;
     }
     if (val.cookie) {
-      if (config.value.providerId === "DouYin") {
+      if (config.value.providerId === "DouYu") {
+        config.value.cookie = appConfig.value.recorder.douyu.cookie;
+      } else if (config.value.providerId === "DouYin") {
         config.value.cookie = appConfig.value.recorder.douyin.cookie;
       } else if (config.value.providerId === "XHS") {
         config.value.cookie = appConfig.value.recorder.xhs.cookie;
@@ -1198,6 +1261,9 @@ watch(
     }
     if (val.customHost) {
       config.value.customHost = appConfig.value.recorder.bilibili.customHost;
+    }
+    if (val.segmentOnTitleChange) {
+      config.value.segmentOnTitleChange = appConfig.value.recorder.bilibili.segmentOnTitleChange;
     }
   },
   {

@@ -30,7 +30,7 @@
               <template #label>
                 <Tip
                   text="删除至回收站"
-                  tip="关闭后若使用“删除源文件”等选项，文件将被直接删除，不会进入回收站，如果使用的文件为smb等远程协议挂载，可能会删除失败"
+                  tip="关闭后若使用“删除源文件”等选项，文件将被直接删除，不会进入回收站，如果使用的文件为smb等远程协议挂载，可能会删除失败，Docker环境不会生效"
                 ></Tip>
               </template>
               <n-switch v-model:value="config.trash" />
@@ -43,6 +43,12 @@
                 <n-switch v-if="!isWeb" v-model:value="config.autoUpdate" />
                 <n-button type="primary" ghost @click="checkForUpdates">检查更新</n-button>
               </div>
+            </n-form-item>
+            <n-form-item v-if="!isWeb">
+              <template #label>
+                <Tip text="阻止系统休眠" tip="开启后，客户端运行期间系统不会自动进入休眠"></Tip>
+              </template>
+              <n-switch v-model:value="config.preventSystemSleep" />
             </n-form-item>
             <n-form-item v-if="!isWeb">
               <template #label>
