@@ -28,7 +28,14 @@ type CheckResponse = {
   data?: { url?: string };
 };
 
-type DouyuUserInput = Omit<DouyuUser, "createdAt" | "updatedAt">;
+type DouyuUserInput = Omit<DouyuUser, "createdAt" | "updatedAt"> & {
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export type WriteDouyuUserOptions = {
+  preserveTimestamps?: boolean;
+};
 
 export type DouyuLoginPollResult =
   | { status: "scan" }
@@ -246,15 +253,65 @@ export class DouyuQrcodeLogin {
   }
 }
 
-export const writeDouyuUser = (user: DouyuUserInput) => {
+export const isDouyuUserPayload = (value: unknown): value is DouyuUser => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.uid !== "number" || !Number.isFinite(obj.uid)) {
+    return false;
+  }
+  if (typeof obj.name !== "string") {
+    return false;
+  }
+  if (
+    !obj.loginCookies ||
+    typeof obj.loginCookies !== "object" ||
+    Array.isArray(obj.loginCookies)
+  ) {
+    return false;
+  }
+  const cookies = obj.loginCookies as Record<string, unknown>;
+  if (typeof cookies.main !== "string" || typeof cookies.passport !== "string") {
+    return false;
+  }
+  if (
+    obj.createdAt !== undefined &&
+    (typeof obj.createdAt !== "number" || !Number.isFinite(obj.createdAt))
+  ) {
+    return false;
+  }
+  if (
+    obj.updatedAt !== undefined &&
+    (typeof obj.updatedAt !== "number" || !Number.isFinite(obj.updatedAt))
+  ) {
+    return false;
+  }
+  return true;
+};
+
+export const writeDouyuUser = (
+  user: DouyuUserInput,
+  options?: WriteDouyuUserOptions,
+) => {
   const now = Date.now();
+  const preserve = options?.preserveTimestamps === true;
+  const createdAt =
+    preserve && typeof user.createdAt === "number" && Number.isFinite(user.createdAt)
+      ? user.createdAt
+      : now;
+  const updatedAt =
+    preserve && typeof user.updatedAt === "number" && Number.isFinite(user.updatedAt)
+      ? user.updatedAt
+      : now;
+
   const users = appConfig.get("douyuUser") || {};
   const storedUser: DouyuUser = {
     uid: user.uid,
     name: user.name,
     avatar: user.avatar,
-    createdAt: now,
-    updatedAt: now,
+    createdAt,
+    updatedAt,
     loginCookies: {
       passport: user.loginCookies.passport,
       main: user.loginCookies.main,

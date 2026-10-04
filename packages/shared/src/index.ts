@@ -224,6 +224,7 @@ export {
   readDouyuUser,
   readDouyuUserList,
   writeDouyuUser,
+  isDouyuUserPayload,
   deleteDouyuUser,
   validateDouyuUser,
   refreshDouyuUser,
@@ -232,5 +233,16 @@ export {
   checkDouyuAccountLoop,
   DouyuQrcodeLogin,
   type DouyuLoginPollResult,
+  type WriteDouyuUserOptions,
 } from "./recorder/douyu.js";
+export {
+  normalizeAccountWeight,
+  deriveSelectableDouyuCookieAccounts,
+  pickWeightedAccount,
+  nextDouyuFailoverAccount,
+  pickWeightedDouyinAccount,
+  type DouyuPoolEntry,
+  type SelectableDouyuAccount,
+  type DouyinCookieAccountEntry,
+} from "./recorder/accountPick.js";
 
