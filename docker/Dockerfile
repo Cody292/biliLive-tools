@@ -2,7 +2,7 @@
 # 基础构建环境
 # ============================================
 ARG DOCKER_IMAGE_PREFIX=
-ARG CADDY_IMAGE=docker.m.daocloud.io/library/caddy:2
+ARG CADDY_IMAGE=docker.1ms.run/library/caddy:2
 FROM ${DOCKER_IMAGE_PREFIX}node:24.18 AS base
 ARG NPM_REGISTRY=
 ARG NPM_FALLBACK_REGISTRY=https://registry.npmjs.org/
