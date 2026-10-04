@@ -8,6 +8,7 @@ ARG NPM_REGISTRY=
 ARG NPM_FALLBACK_REGISTRY=https://registry.npmjs.org/
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN cat > /usr/local/bin/configure-npm-registry <<'EOF' && chmod +x /usr/local/bin/configure-npm-registry
 #!/bin/sh
 set -eu
@@ -38,9 +39,13 @@ fi
 printf '%s\n' "$registry"
 EOF
 RUN set -eux; \
-    corepack enable; \
     registry="$(configure-npm-registry)"; \
-    export COREPACK_NPM_REGISTRY="$registry"; \
+    if [ -n "${NPM_REGISTRY:-}" ]; then \
+      export COREPACK_NPM_REGISTRY="${NPM_REGISTRY}"; \
+    else \
+      export COREPACK_NPM_REGISTRY="$registry"; \
+    fi; \
+    corepack enable; \
     corepack prepare pnpm@11.5.0 --activate; \
     configure-npm-registry >/dev/null
 
