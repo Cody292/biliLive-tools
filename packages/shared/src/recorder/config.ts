@@ -4,6 +4,11 @@ import { get } from "lodash-es";
 import type { AppConfig } from "../config.js";
 import { getCookie } from "../task/bili.js";
 import { readDouyuUser } from "./douyu.js";
+import {
+  deriveSelectableDouyuCookieAccounts,
+  pickWeightedAccount,
+  pickWeightedDouyinAccount,
+} from "./accountPick.js";
 
 // 定义独立配置类
 export default class RecorderConfig {
@@ -21,6 +26,7 @@ export default class RecorderConfig {
     | (Recorder & {
         auth?: string;
         formatPriorities?: Array<"hls" | "flv">;
+        douyuAuthCandidates?: Array<{ uid: number; cookie: string }>;
       })
     | null {
     const settings = this.appConfig.get("recorders");
@@ -36,10 +42,17 @@ export default class RecorderConfig {
       return mode === "off" ? "off" : "always";
     };
 
+    const normalizeDouyuCookieMode = (mode: unknown) => {
+      return !mode || mode === "off" ? "off" : "always";
+    };
+
     const getValue = (key: string) => {
       if (noGlobalFollowFields.includes(key)) {
         if (key === "douyinCookieMode") {
           return normalizeDouyinCookieMode(settingRecord[key]);
+        }
+        if (key === "douyuCookieMode") {
+          return normalizeDouyuCookieMode(settingRecord[key]);
         }
         return settingRecord[key];
       } else {
@@ -107,6 +120,14 @@ export default class RecorderConfig {
           if (setting.providerId === "DouYin") {
             return get(globalConfig, "douyin.accounts", []);
           }
+        } else if (key === "douyuCookieMode") {
+          if (setting.providerId === "DouYu") {
+            return normalizeDouyuCookieMode(get(globalConfig, "douyu.mode", "off"));
+          }
+        } else if (key === "douyuCookieAccounts") {
+          if (setting.providerId === "DouYu") {
+            return get(globalConfig, "douyu.accounts", []);
+          }
         } else if (key === "doubleScreen") {
           if (setting.providerId === "DouYin") {
             return get(globalConfig, "douyin.doubleScreen");
@@ -161,46 +182,11 @@ export default class RecorderConfig {
       }
     };
 
-    const normalizeDouyinAccountWeight = (weight: unknown) => {
-      const parsedWeight = Number(weight);
-      return Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 1;
-    };
-
-    const pickWeightedDouyinAccount = (
-      accounts: Array<{
-        remark?: string;
-        cookie?: string;
-        enabled?: boolean;
-        weight?: number;
-      }>,
-    ) => {
-      const enabledAccounts = accounts.filter((item) => item.enabled !== false && item.cookie?.trim());
-      if (enabledAccounts.length === 0) {
-        return undefined;
-      }
-
-      const normalizedAccounts = enabledAccounts.map((item) => ({
-        ...item,
-        cookie: item.cookie?.trim(),
-        weight: normalizeDouyinAccountWeight(item.weight),
-      }));
-      const totalWeight = normalizedAccounts.reduce((sum, item) => sum + item.weight, 0);
-      let random = Math.random() * totalWeight;
-
-      for (const account of normalizedAccounts) {
-        random -= account.weight;
-        if (random <= 0) {
-          return account;
-        }
-      }
-
-      return normalizedAccounts[normalizedAccounts.length - 1];
-    };
-
     // 授权处理
     let uid: number | string | undefined;
     let auth: string | undefined;
     let currentDouyinCookieRemark: string | undefined;
+    let douyuAuthCandidates: Array<{ uid: number; cookie: string }> | undefined;
     if (setting.providerId === "Bilibili") {
       uid = getValue("uid");
       if (uid) {
@@ -216,13 +202,26 @@ export default class RecorderConfig {
         }
       }
     } else if (setting.providerId === "DouYu") {
+      const cookieMode = getValue("douyuCookieMode") ?? "off";
+      const accounts = getValue("douyuCookieAccounts") ?? [];
       uid = getValue("uid");
-      if (uid) {
-        try {
-          auth = readDouyuUser(Number(uid))?.loginCookies.main;
-        } catch (error) {
-          console.error(error);
+      if (cookieMode === "always") {
+        const selectable = deriveSelectableDouyuCookieAccounts(accounts, readDouyuUser);
+        const selected = pickWeightedAccount(selectable);
+        auth = selected?.cookie;
+        douyuAuthCandidates =
+          selectable.length > 0
+            ? selectable.map(({ uid, cookie }) => ({ uid, cookie }))
+            : undefined;
+      } else {
+        if (uid) {
+          try {
+            auth = readDouyuUser(Number(uid))?.loginCookies?.main;
+          } catch (error) {
+            console.error(error);
+          }
         }
+        douyuAuthCandidates = undefined;
       }
     } else if (setting.providerId === "DouYin") {
       const cookieMode = getValue("douyinCookieMode") ?? "always";
@@ -292,6 +291,7 @@ export default class RecorderConfig {
     const result: Recorder & {
       auth?: string;
       formatPriorities?: Array<"hls" | "flv">;
+      douyuAuthCandidates?: Array<{ uid: number; cookie: string }>;
     } = {
       ...setting,
       quality: getValue("quality") ?? "highest",
@@ -324,6 +324,14 @@ export default class RecorderConfig {
     if (setting.providerId === "DouYin") {
       result.douyinCookieMode = getValue("douyinCookieMode") ?? "always";
       result.douyinCookieAccounts = getValue("douyinCookieAccounts") ?? [];
+    }
+
+    if (setting.providerId === "DouYu") {
+      result.douyuCookieMode = getValue("douyuCookieMode") ?? "off";
+      result.douyuCookieAccounts = getValue("douyuCookieAccounts") ?? [];
+      if (douyuAuthCandidates && douyuAuthCandidates.length > 0) {
+        result.douyuAuthCandidates = douyuAuthCandidates;
+      }
     }
 
     const customHost = getValue("customHost");
