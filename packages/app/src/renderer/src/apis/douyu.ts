@@ -1,4 +1,5 @@
 import request from "./request";
+import type { DouyuUser } from "@biliLive-tools/types";
 
 const qrcode = async (): Promise<{ id: string; url: string; expiresAt: number }> => {
   const res = await request.post("/douyu/login");
@@ -40,4 +41,42 @@ const validate = async (uid: number): Promise<{ valid: boolean }> => {
   return res.data;
 };
 
-export default { qrcode, loginPoll, loginCancel, getUsers, deleteUser, updateAuth, validate };
+const exportAll = async (): Promise<DouyuUser[]> => {
+  const res = await request.get("/douyu/user/export");
+  return res.data;
+};
+
+const exportSingle = async (uid: number): Promise<DouyuUser> => {
+  const res = await request.post("/douyu/user/export_single", {
+    uid,
+  });
+  return res.data;
+};
+
+const importAll = async (users: DouyuUser[]) => {
+  const res = await request.post("/douyu/user/import", {
+    users,
+  });
+  return res.data;
+};
+
+const importSingle = async (user: DouyuUser) => {
+  const res = await request.post("/douyu/user/import_single", {
+    user,
+  });
+  return res.data;
+};
+
+export default {
+  qrcode,
+  loginPoll,
+  loginCancel,
+  getUsers,
+  deleteUser,
+  updateAuth,
+  validate,
+  exportAll,
+  exportSingle,
+  importAll,
+  importSingle,
+};

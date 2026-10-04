@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 import {
   deleteDouyuUser,
   DouyuQrcodeLogin,
+  isDouyuUserPayload,
+  readDouyuUser,
   readDouyuUserList,
   writeDouyuUser,
   refreshDouyuUser,
@@ -113,6 +115,57 @@ router.post("/user/delete", (ctx) => {
   }
   deleteDouyuUser(uid);
   ctx.body = "success";
+});
+
+router.get("/user/export", (ctx) => {
+  ctx.body = readDouyuUserList();
+});
+
+router.post("/user/export_single", (ctx) => {
+  const uid = Number((ctx.request.body as { uid?: number })?.uid);
+  if (!Number.isSafeInteger(uid) || uid <= 0) {
+    ctx.status = 400;
+    ctx.body = "valid uid required";
+    return;
+  }
+  const user = readDouyuUser(uid);
+  if (!user) {
+    ctx.status = 404;
+    ctx.body = "用户不存在";
+    return;
+  }
+  ctx.body = user;
+});
+
+router.post("/user/import", (ctx) => {
+  const { users } = (ctx.request.body as { users?: unknown }) || {};
+  if (!Array.isArray(users)) {
+    ctx.status = 400;
+    ctx.body = "参数错误";
+    return;
+  }
+  for (const item of users) {
+    if (!isDouyuUserPayload(item)) {
+      ctx.status = 400;
+      ctx.body = "账号数据不完整";
+      return;
+    }
+  }
+  for (const item of users) {
+    writeDouyuUser(item, { preserveTimestamps: true });
+  }
+  ctx.status = 200;
+});
+
+router.post("/user/import_single", (ctx) => {
+  const { user } = (ctx.request.body as { user?: unknown }) || {};
+  if (!isDouyuUserPayload(user)) {
+    ctx.status = 400;
+    ctx.body = "账号数据不完整";
+    return;
+  }
+  writeDouyuUser(user, { preserveTimestamps: true });
+  ctx.status = 200;
 });
 
 export default router;
