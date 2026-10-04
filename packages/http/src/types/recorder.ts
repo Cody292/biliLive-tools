@@ -126,6 +126,8 @@ export type UpdateRecorderArgs = Pick<
   | "cookie"
   | "douyinCookieMode"
   | "douyinCookieAccounts"
+  | "douyuCookieMode"
+  | "douyuCookieAccounts"
   | "proxy"
   | "doubleScreen"
   | "onlyAudio"

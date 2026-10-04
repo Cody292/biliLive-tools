@@ -27,6 +27,22 @@ function normalizeDouyinRecorderArgs<T extends { douyinCookieMode?: RecorderConf
   };
 }
 
+function normalizeDouyuCookieMode(mode: RecorderConfig["douyuCookieMode"]) {
+  if (!mode) return mode;
+  return mode === "off" ? "off" : "always";
+}
+
+function normalizeDouyuRecorderArgs<T extends { douyuCookieMode?: RecorderConfig["douyuCookieMode"] }>(
+  args: T,
+) {
+  const douyuCookieMode = normalizeDouyuCookieMode(args.douyuCookieMode);
+  if (douyuCookieMode === args.douyuCookieMode) return args;
+  return {
+    ...args,
+    douyuCookieMode,
+  };
+}
+
 // RecorderAPI 的实际实现，这里负责实现对外暴露的接口，并假设 Args 都已经由上一层解析好了
 async function getRecorders(
   params: RecorderAPI["getRecorders"]["Args"],
@@ -166,10 +182,12 @@ async function addRecorder(
 ): Promise<RecorderAPI["addRecorder"]["Resp"]> {
   const recorderManager = container.resolve("recorderManager");
 
-  const config = normalizeDouyinRecorderArgs({
-    id: uuid(),
-    ...args,
-  });
+  const config = normalizeDouyuRecorderArgs(
+    normalizeDouyinRecorderArgs({
+      id: uuid(),
+      ...args,
+    }),
+  );
   // @ts-ignore
   const recorder = await recorderManager.addRecorder(config);
   if (recorder == null) throw new Error("不可重复添加");
@@ -180,7 +198,7 @@ async function updateRecorder(
   args: RecorderAPI["updateRecorder"]["Args"],
 ): Promise<RecorderAPI["updateRecorder"]["Resp"]> {
   const recorderManager = container.resolve("recorderManager");
-  const normalizedArgs = normalizeDouyinRecorderArgs(args);
+  const normalizedArgs = normalizeDouyuRecorderArgs(normalizeDouyinRecorderArgs(args));
   // @ts-ignore
   const recorder = await recorderManager.updateRecorder(normalizedArgs);
   if (recorder == null) throw new Error("配置不存在");
