@@ -22,6 +22,7 @@ import { DouyuParser } from "@bililive-tools/stream-get";
 import { getInfo, getStream } from "./stream.js";
 import { createDYClient } from "./dy_client/index.js";
 import { giftMap, colorTab } from "./danma.js";
+import { requestStreamWithDouyuFailover } from "./cookieFailover.js";
 
 function createRecorder(opts: RecorderCreateOpts): Recorder {
   // 内部实现时，应该只有 proxy 包裹的那一层会使用这个 recorder 标识符，不应该有直接通过
@@ -60,17 +61,25 @@ function createRecorder(opts: RecorderCreateOpts): Recorder {
       };
     },
     async getStream() {
-      const res = await getStream({
-        channelId: this.channelId,
-        quality: this.quality,
-        source: this.source,
-        strictQuality: false,
-        onlyAudio: this.onlyAudio,
-        avoidEdgeCDN: true,
-        codecName: this.codecName,
-        api: this.api,
-        auth: this.auth,
-      });
+      const res = await requestStreamWithDouyuFailover(
+        {
+          mode: this.douyuCookieMode,
+          auth: this.auth,
+          candidates: this.douyuAuthCandidates,
+        },
+        (auth) =>
+          getStream({
+            channelId: this.channelId,
+            quality: this.quality,
+            source: this.source,
+            strictQuality: false,
+            onlyAudio: this.onlyAudio,
+            avoidEdgeCDN: true,
+            codecName: this.codecName,
+            api: this.api,
+            auth,
+          }),
+      );
       return res.currentStream;
     },
   };
@@ -143,17 +152,25 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
 
   let res: Awaited<ReturnType<typeof getStream>>;
   try {
-    res = await getStream({
-      channelId: this.channelId,
-      quality: this.quality,
-      source: this.source,
-      strictQuality,
-      onlyAudio: this.onlyAudio,
-      avoidEdgeCDN: true,
-      codecName: this.codecName,
-      api: this.api,
-      auth: this.auth || "",
-    });
+    res = await requestStreamWithDouyuFailover(
+      {
+        mode: this.douyuCookieMode,
+        auth: this.auth,
+        candidates: this.douyuAuthCandidates,
+      },
+      (auth) =>
+        getStream({
+          channelId: this.channelId,
+          quality: this.quality,
+          source: this.source,
+          strictQuality,
+          onlyAudio: this.onlyAudio,
+          avoidEdgeCDN: true,
+          codecName: this.codecName,
+          api: this.api,
+          auth,
+        }),
+    );
   } catch (err) {
     if (qualityRetryLeft > 0) await this.cache.set("qualityRetryLeft", qualityRetryLeft - 1);
     this.emit("stateChange", {
