@@ -57,6 +57,15 @@
         <div class="user-info">
           <div class="login-btns">
             <n-button type="primary" @click="douyuLogin">登录账号</n-button>
+            <n-button @click="exportDouyuAccounts">导出用户</n-button>
+            <n-button @click="triggerDouyuImport">导入用户</n-button>
+            <input
+              ref="douyuImportInput"
+              type="file"
+              accept="application/json"
+              style="display: none"
+              @change="onDouyuImportFileChange"
+            />
           </div>
         </div>
         <div class="container">
@@ -80,38 +89,251 @@
               <div style="padding: 5px 10px">uid: {{ item.uid }}</div>
               <div class="section" @click="douyuValidate(item.uid)">校验有效性</div>
               <div class="section" @click="douyuUpdateAuth(item.uid)">更新授权</div>
+              <div class="section" @click="exportDouyuAccount(item.uid)">导出</div>
               <div class="section section-danger" @click="douyuLogout(item.uid)">退出账号</div>
             </n-popover>
           </div>
         </div>
         <DouyuLoginDialog v-model="douyuLoginVisible" @confirm="douyuLoginConfirm" />
       </n-tab-pane>
+      <n-tab-pane name="douyin" tab="抖音">
+        <div class="user-info">
+          <div class="login-btns">
+            <n-button type="primary" @click="douyinScanLogin">扫码登录</n-button>
+          </div>
+        </div>
+        <div class="container">
+          <div v-for="item in douyinAccounts" :key="item.id" class="card douyin-card">
+            <span class="username douyin-remark" :title="item.remark || undefined">
+              {{ item.remark || "" }}
+            </span>
+            <n-tag
+              :type="getDouyinAccountHealthTagType(item.healthStatus)"
+              size="small"
+              class="douyin-health-tag"
+              :title="item.healthReason || undefined"
+            >
+              {{ getDouyinAccountHealthTagText(item.healthStatus) }}
+            </n-tag>
+            <span v-if="item.updatedAt" class="douyin-updated-at">{{ item.updatedAt }}</span>
+            <n-popover placement="right-start" trigger="hover">
+              <template #trigger>
+                <n-icon size="25" class="pointer menu"><EllipsisHorizontalOutline /></n-icon>
+              </template>
+              <div v-if="item.accountUid" style="padding: 5px 10px">ID: {{ item.accountUid }}</div>
+              <div class="section" @click="handleProbeAccount(item)">
+                {{ probingMap[item.id] ? "校验中..." : "校验" }}
+              </div>
+              <div class="section" @click="handleSilentRenewAccount(item)">
+                {{ renewingMap[item.id] ? "重登中..." : "重登" }}
+              </div>
+              <div class="section section-danger" @click="deleteDouyinAccount(item.id)">删除</div>
+            </n-popover>
+          </div>
+        </div>
+        <DouyinLoginDialog v-model="showDouyinLoginDialog" @success="handleDouyinLoginSuccess" />
+      </n-tab-pane>
     </n-tabs>
   </div>
 </template>
 
 <script setup lang="ts">
-import { userApi, taskApi, douyuApi } from "@renderer/apis";
+import { userApi, taskApi, douyuApi, douyinApi } from "@renderer/apis";
 import { verifyBiliKey } from "@renderer/utils";
 import { useClipboard } from "@vueuse/core";
-import type { BiliUser } from "@biliLive-tools/types";
+import type { BiliUser, DouyuUser, DouyinCookieAccount } from "@biliLive-tools/types";
+import { cloneDeep } from "lodash-es";
 
 import { useUserInfoStore, useAppConfig, useDouyuUserStore } from "@renderer/stores";
 import BiliLoginDialog from "./components/BiliLoginDialog.vue";
 import DouyuLoginDialog from "./components/DouyuLoginDialog.vue";
+import DouyinLoginDialog from "@renderer/pages/setting/components/DouyinLoginDialog.vue";
 import { useConfirm } from "@renderer/hooks";
 import { EllipsisHorizontalOutline } from "@vicons/ionicons5";
+import {
+  persistDouyinScanLogin,
+  formatDouyinAccountUpdatedAt,
+  getDouyinAccountHealthTagText,
+  getDouyinAccountHealthTagType,
+  interpretDouyinSilentRenewResult,
+} from "@renderer/pages/setting/douyinAccounts";
 
 defineOptions({
   name: "User",
 });
 
 const { getUsers, changeUser } = useUserInfoStore();
-const { appConfig } = storeToRefs(useAppConfig());
+const appConfigStore = useAppConfig();
+const { appConfig } = storeToRefs(appConfigStore);
 const { userInfo, userList } = storeToRefs(useUserInfoStore());
 const notice = useNotification();
 const { userList: douyuUserList } = storeToRefs(useDouyuUserStore());
 const { getUsers: getDouyuUsers } = useDouyuUserStore();
+const confirm = useConfirm();
+
+const showDouyinLoginDialog = ref(false);
+const probingMap = ref<Record<string, boolean>>({});
+const renewingMap = ref<Record<string, boolean>>({});
+
+const douyinAccounts = computed(() => appConfig.value?.recorder?.douyin?.accounts ?? []);
+
+const ensureDouyinAccounts = (): DouyinCookieAccount[] => {
+  const douyin = appConfig.value.recorder.douyin;
+  if (!Array.isArray(douyin.accounts)) {
+    douyin.accounts = [];
+  }
+  return douyin.accounts;
+};
+
+const persistRecorder = async () => {
+  await appConfigStore.set("recorder", cloneDeep(appConfig.value.recorder));
+  await appConfigStore.getAppConfig();
+};
+
+const confirmCookieLoginRisk = async (platform: string, extraRisk?: string) => {
+  const [status] = await confirm.warning({
+    title: `${platform} 登录提示`,
+    content: [
+      "Cookie 会用于相关的 API 请求中。程序请求与浏览器内正常使用所发送的请求不完全一致，能通过分析请求日志识别出来。",
+      "软件开发者不对账号发生的任何事情负责，包括并不限于被标记为机器人账号、无法参与各种抽奖和活动等。建议使用小号。",
+      "如您知晓您的账号会因以上所列出来的部分原因所导致无法使用或权益受损等情况，并愿意承担由此所会带来的一系列后果，请继续以下的操作，软件开发者不会对您账号所发生的任何后果承担责任。",
+      extraRisk,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    positiveText: "继续登录",
+    negativeText: "取消",
+  });
+  return status;
+};
+
+const douyinScanLogin = async () => {
+  const status = await confirmCookieLoginRisk(
+    "抖音",
+    "抖音扫码登录后将会将Cookie自动填入账号池，请确保是个人常用或备用小号。",
+  );
+  if (status) {
+    showDouyinLoginDialog.value = true;
+  }
+};
+
+const handleDouyinLoginSuccess = async (cookie: string) => {
+  const accounts = ensureDouyinAccounts();
+  const persist = await persistDouyinScanLogin({
+    accounts,
+    cookie,
+    getAccountIdentity: (nextCookie) => douyinApi.getAccountIdentity(nextCookie),
+  });
+  if (!persist.didSave) {
+    const noticeText =
+      persist.failureReason === "identity_mismatch"
+        ? "账号重登失败：登录身份与账号不一致"
+        : "扫码登录失败：无法确认身份，请重新扫码";
+    notice.error({ title: noticeText, duration: 3000 });
+    return;
+  }
+  await persistRecorder();
+};
+
+const handleProbeAccount = async (account: DouyinCookieAccount) => {
+  if (!account.cookie) {
+    notice.warning({ title: "请先输入 Cookie 或扫码登录", duration: 2000 });
+    return;
+  }
+  if (probingMap.value[account.id] || renewingMap.value[account.id]) return;
+  probingMap.value[account.id] = true;
+  try {
+    const res = await douyinApi.probeAccount({
+      accountId: account.id,
+      cookie: account.cookie,
+    });
+    const now = Date.now();
+    if (res.healthHint) {
+      account.healthStatus = res.healthHint;
+      account.healthReason = res.ok ? undefined : (res.reason || res.class);
+      account.healthCheckedAt = now;
+    } else if (res.reason || res.class) {
+      account.healthReason = res.reason || res.class;
+      account.healthCheckedAt = now;
+    }
+    await persistRecorder();
+    if (res.ok) {
+      notice.success({ title: "账号校验成功：状态正常", duration: 2000 });
+    } else {
+      notice.warning({ title: `账号校验完成：${res.reason || res.class || "状态异常"}`, duration: 2500 });
+    }
+  } catch (err: unknown) {
+    notice.error({
+      title: `账号校验失败：${err instanceof Error ? err.message : "网络请求异常"}`,
+      duration: 3000,
+    });
+  } finally {
+    probingMap.value[account.id] = false;
+  }
+};
+
+const handleSilentRenewAccount = async (account: DouyinCookieAccount) => {
+  if (!account.id) {
+    notice.warning({ title: "账号ID未知", duration: 2000 });
+    return;
+  }
+  if (renewingMap.value[account.id] || probingMap.value[account.id]) {
+    return;
+  }
+  renewingMap.value[account.id] = true;
+  try {
+    const res = await douyinApi.silentRenew({ accountId: account.id });
+    const now = Date.now();
+    const decision = interpretDouyinSilentRenewResult(res);
+    if (decision.healthStatus !== undefined) {
+      account.healthStatus = decision.healthStatus;
+    }
+    if (decision.healthReason !== undefined) {
+      account.healthReason = decision.healthReason;
+    } else if (decision.writeCookie) {
+      account.healthReason = undefined;
+    }
+    account.healthCheckedAt = res.healthCheckedAt || now;
+    if (decision.writeCookie && res.cookie) {
+      account.cookie = res.cookie;
+    }
+    if (decision.writeUpdatedAt) {
+      account.updatedAt = res.updatedAt || formatDouyinAccountUpdatedAt();
+    }
+    await persistRecorder();
+    if (decision.noticeLevel === "success") {
+      notice.success({ title: decision.notice, duration: 2000 });
+    } else if (decision.noticeLevel === "warning") {
+      notice.warning({ title: decision.notice, duration: 2500 });
+    } else {
+      notice.error({ title: decision.notice, duration: 3000 });
+    }
+    if (decision.openQr) {
+      showDouyinLoginDialog.value = true;
+    }
+  } catch (err: unknown) {
+    notice.error({
+      title: `账号重登异常：${err instanceof Error ? err.message : "网络请求异常"}`,
+      duration: 3000,
+    });
+  } finally {
+    renewingMap.value[account.id] = false;
+  }
+};
+
+const deleteDouyinAccount = async (id: string) => {
+  const [status] = await confirm.warning({
+    content: "确认删除该抖音账号？",
+  });
+  if (!status) return;
+  ensureDouyinAccounts();
+  appConfig.value.recorder.douyin.accounts = appConfig.value.recorder.douyin.accounts.filter(
+    (account) => account.id !== id,
+  );
+  await persistRecorder();
+  notice.success({ title: "删除成功", duration: 1000 });
+};
+
 const douyuLoginVisible = ref(false);
 const DOUYU_VALID_DAYS = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -158,8 +380,6 @@ const login = async () => {
 
   loginTvDialogVisible.value = true;
 };
-
-const confirm = useConfirm();
 
 const douyuLogin = async () => {
   const [status] = await confirm.warning({
@@ -422,10 +642,95 @@ const getCookie = async (uid: number) => {
   });
 };
 
+const douyuImportInput = ref<HTMLInputElement | null>(null);
+
+const isDouyuUser = (value: unknown): value is DouyuUser => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const user = value as {
+    uid?: unknown;
+    name?: unknown;
+    loginCookies?: {
+      main?: unknown;
+      passport?: unknown;
+    };
+  };
+
+  return (
+    typeof user.uid === "number" &&
+    typeof user.name === "string" &&
+    !!user.loginCookies &&
+    typeof user.loginCookies === "object" &&
+    typeof user.loginCookies.main === "string" &&
+    typeof user.loginCookies.passport === "string"
+  );
+};
+
+const exportDouyuAccounts = async () => {
+  const users = await douyuApi.exportAll();
+  const isExported = await downloadJSON("douyu-users-all.json", users);
+  if (!isExported) return;
+  notice.success({
+    title: "导出成功",
+    duration: 1200,
+  });
+};
+
+const exportDouyuAccount = async (uid: number) => {
+  const user = await douyuApi.exportSingle(uid);
+  const isExported = await downloadJSON(`douyu-user-${uid}.json`, user);
+  if (!isExported) return;
+  notice.success({
+    title: "导出成功",
+    duration: 1200,
+  });
+};
+
+const triggerDouyuImport = () => {
+  douyuImportInput.value?.click();
+};
+
+const onDouyuImportFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+
+  try {
+    const payload = await readJSONFile<unknown>(file);
+
+    if (Array.isArray(payload)) {
+      if (!payload.every(isDouyuUser)) {
+        throw new Error("invalid douyu user list payload");
+      }
+      await douyuApi.importAll(payload);
+    } else if (isDouyuUser(payload)) {
+      await douyuApi.importSingle(payload);
+    } else {
+      throw new Error("invalid douyu user payload");
+    }
+
+    await getDouyuUsers();
+    notice.success({
+      title: "导入成功",
+      duration: 1200,
+    });
+  } catch {
+    notice.error({
+      title: "导入失败，文件格式错误",
+      duration: 1600,
+    });
+  } finally {
+    input.value = "";
+  }
+};
+
 onActivated(() => {
   currentTime.value = Date.now();
   getUsers();
   getDouyuUsers();
+  appConfigStore.getAppConfig();
 });
 </script>
 
@@ -479,6 +784,32 @@ onActivated(() => {
     }
     .menu {
       color: #eee;
+    }
+  }
+  .card.douyin-card {
+    width: 120px;
+    min-height: 100px;
+    gap: 6px;
+    justify-content: flex-start;
+    padding-bottom: 24px;
+    .douyin-remark {
+      width: 100%;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      min-height: 18px;
+    }
+    .douyin-health-tag {
+      margin: 2px 0;
+    }
+    .douyin-updated-at {
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      transform: scale(0.9);
+      transform-origin: center;
     }
   }
 }
