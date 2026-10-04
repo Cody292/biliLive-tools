@@ -76,12 +76,21 @@ export const recorderNoGlobalFollowFields: Array<
   "cookie",
   "douyinCookieMode",
   "douyinCookieAccounts",
+  "douyuCookieMode",
+  "douyuCookieAccounts",
   "proxy",
   "doubleScreen",
   "useServerTimestamp",
 ];
 
 export type DouyinCookieMode = "off" | "always" | "gift_save_only" | "only-save-gift";
+export type DouyuCookieMode = "off" | "always";
+
+export interface DouyuCookieAccount {
+  uid: number;
+  enabled: boolean;
+  weight: number | null;
+}
 
 /** 抖音 Cookie 账号健康状态（Schema B） */
 export type DouyinAccountHealthStatus =
@@ -440,6 +449,8 @@ interface BilibiliRecorderConfig extends RecorderCheckConfig {
 interface DouyuRecorderConfig extends RecorderCheckConfig {
   /** 登录账号 */
   uid?: number;
+  mode?: DouyuCookieMode;
+  accounts?: DouyuCookieAccount[];
   /** 画质：0：原画 2：高清 3：超清 4：蓝光4M 8：蓝光8M */
   quality: 0 | 2 | 3 | 4 | 8;
   source: string;
@@ -633,6 +644,8 @@ export interface Recorder {
   douyinCookieMode?: DouyinCookieMode;
   /** 抖音cookie账号池（直播间可覆盖全局） */
   douyinCookieAccounts?: DouyinCookieAccount[];
+  douyuCookieMode?: DouyuCookieMode;
+  douyuCookieAccounts?: DouyuCookieAccount[];
   /** 请求和录制使用的代理 */
   proxy?: string;
   /** 是否使用双屏直播流 */

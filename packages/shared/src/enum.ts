@@ -390,6 +390,8 @@ export const APP_DEFAULT_CONFIG: AppConfig = {
     },
     douyu: {
       uid: undefined,
+      mode: "off",
+      accounts: [],
       quality: 0,
       source: "auto",
       checkInterval: undefined,
@@ -896,6 +898,8 @@ export const defaultRecordConfig: Omit<Recorder, "id"> = {
   cookie: "",
   douyinCookieMode: "always",
   douyinCookieAccounts: [],
+  douyuCookieMode: "off",
+  douyuCookieAccounts: [],
   proxy: "",
   doubleScreen: true,
   useServerTimestamp: false,

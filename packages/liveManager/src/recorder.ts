@@ -32,6 +32,14 @@ interface DouyinCookieAccount {
   healthReason?: string;
 }
 
+type DouyuCookieMode = "off" | "always";
+
+interface DouyuCookieAccount {
+  uid?: number;
+  enabled?: boolean;
+  weight?: number | null;
+}
+
 export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
   providerId: RecorderProvider<E>["id"];
   channelId: ChannelId;
@@ -74,6 +82,9 @@ export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
   doubleScreen?: boolean;
   douyinCookieMode?: DouyinCookieMode;
   douyinCookieAccounts?: DouyinCookieAccount[];
+  douyuCookieMode?: DouyuCookieMode;
+  douyuCookieAccounts?: DouyuCookieAccount[];
+  douyuAuthCandidates?: { uid: number; cookie: string }[];
   /** B站是否使用m3u8代理 */
   useM3U8Proxy?: boolean;
   /**B站m3u8代理url */
