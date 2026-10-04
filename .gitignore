@@ -23,6 +23,7 @@ AGENTS.md
 planning-with-files/
 大纲.md
 git规范.md
+旧文档/
 
 # Local test artifacts not intended for this publish
 # 目录级：避免逐个追加；已跟踪文件需另 git rm --cached
@@ -36,6 +37,9 @@ packages/DouYinDanma/tsconfig.vitest.json
 packages/DouYinDanma/vitest.config.ts
 packages/StreamGet/test/http.test.ts
 scripts/install-bin.test.js
+packages/DouYuRecorder/src/*.test.ts
+packages/DouYuRecorder/src/**/*.test.ts
+packages/DouYuRecorder/vitest.config.ts
 
 # Local experiment / planning / scratch assets
 findings.md
