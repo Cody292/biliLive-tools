@@ -378,6 +378,66 @@
               placeholder="请先在用户页登录斗鱼账号"
             />
           </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip
+                text="Cookie模式"
+                tip="关闭：沿用上方账号；启用：从账号池加权选号取流，失败切换下一启用账号。池为空则不注入 Cookie。"
+              ></Tip>
+            </template>
+            <n-select
+              v-model:value="config.recorder.douyu.mode"
+              :options="douyinCookieModeOptions"
+              style="width: 220px"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip text="账号池" tip="引用用户页已登录的斗鱼账号，启用项参与运行时选择"></Tip>
+            </template>
+            <div style="display: flex; width: 100%; flex-direction: column; gap: 10px">
+              <div style="display: flex; gap: 10px">
+                <n-button
+                  type="primary"
+                  ghost
+                  style="width: fit-content"
+                  @click="addGlobalDouyuAccount"
+                  >新增账号</n-button
+                >
+              </div>
+              <div
+                v-for="(account, index) in config.recorder.douyu.accounts"
+                :key="index"
+                style="display: flex; gap: 10px; align-items: center"
+              >
+                <n-select
+                  v-model:value="account.uid"
+                  :options="douyuUserList"
+                  label-field="name"
+                  value-field="uid"
+                  clearable
+                  placeholder="选择账号"
+                  style="width: 220px"
+                />
+                <n-input-number
+                  v-model:value="account.weight"
+                  :min="1"
+                  :show-button="false"
+                  placeholder="随机"
+                  clearable
+                  :parse="(val: string) => (val ? Number(val.replace(/\D/g, '')) : null)"
+                  :format="(val: number | null) => (val ? String(val) : '')"
+                  style="width: 100px"
+                >
+                  <template #prefix>权重</template>
+                </n-input-number>
+                <n-switch v-model:value="account.enabled" />
+                <n-button type="error" ghost @click="removeGlobalDouyuAccount(index)"
+                  >删除</n-button
+                >
+              </div>
+            </div>
+          </n-form-item>
 
           <div class="divider"></div>
           <n-form-item>
@@ -557,9 +617,6 @@
               <div style="display: flex; gap: 10px">
                 <n-button type="primary" ghost style="width: fit-content" @click="addGlobalDouyinAccount"
                   >新增账号</n-button
-                >
-                <n-button type="primary" style="width: fit-content" @click="handleDouyinScanLogin"
-                  >扫码登录</n-button
                 >
               </div>
               <div
@@ -912,7 +969,7 @@ import {
   persistDouyinScanLogin,
 } from "./douyinAccounts";
 
-import type { AppConfig, DouyinCookieAccount } from "@biliLive-tools/types";
+import type { AppConfig, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
 
 const config = defineModel<AppConfig>("data", {
   default: () => {},
@@ -961,6 +1018,48 @@ watch(
   () => config.value?.recorder?.douyin,
   () => {
     ensureGlobalDouyinCookieConfig();
+  },
+  {
+    immediate: true,
+    deep: true,
+  },
+);
+
+const createDouyuPoolAccount = (): DouyuCookieAccount => ({
+  uid: 0,
+  enabled: true,
+  weight: null,
+});
+
+const ensureGlobalDouyuCookieConfig = () => {
+  if (!config.value?.recorder?.douyu) {
+    return;
+  }
+  config.value.recorder.douyu.mode =
+    config.value.recorder.douyu.mode === "always" ? "always" : "off";
+  if (!Array.isArray(config.value.recorder.douyu.accounts)) {
+    config.value.recorder.douyu.accounts = [];
+  }
+};
+
+const addGlobalDouyuAccount = () => {
+  ensureGlobalDouyuCookieConfig();
+  if (config.value?.recorder?.douyu?.accounts) {
+    config.value.recorder.douyu.accounts.push(createDouyuPoolAccount());
+  }
+};
+
+const removeGlobalDouyuAccount = (index: number) => {
+  ensureGlobalDouyuCookieConfig();
+  if (config.value?.recorder?.douyu?.accounts) {
+    config.value.recorder.douyu.accounts.splice(index, 1);
+  }
+};
+
+watch(
+  () => config.value?.recorder?.douyu,
+  () => {
+    ensureGlobalDouyuCookieConfig();
   },
   {
     immediate: true,
@@ -1117,15 +1216,6 @@ const xhsLogin = async () => {
 };
 
 const showDouyinLoginDialog = ref(false);
-const handleDouyinScanLogin = async () => {
-  const status = await confirmCookieLoginRisk(
-    "抖音",
-    "抖音扫码登录后将会将Cookie自动填入账号池，请确保是个人常用或备用小号。",
-  );
-  if (status) {
-    showDouyinLoginDialog.value = true;
-  }
-};
 
 const probingMap = ref<Record<string, boolean>>({});
 const renewingMap = ref<Record<string, boolean>>({});

@@ -372,6 +372,84 @@
             <n-form-item>
               <template #label>
                 <Tip
+                  text="Cookie模式"
+                  tip="关闭：沿用上方账号；启用：从账号池加权选号取流，失败切换下一启用账号。池为空则不注入 Cookie。"
+                ></Tip>
+              </template>
+              <n-select
+                v-model:value="config.douyuCookieMode"
+                :options="douyinCookieModeOptions"
+                :disabled="globalFieldsObj.douyuCookieMode"
+              />
+              <n-checkbox v-model:checked="globalFieldsObj.douyuCookieMode" class="global-checkbox"
+                >全局</n-checkbox
+              >
+            </n-form-item>
+            <n-form-item>
+              <template #label>
+                <Tip text="账号池" tip="引用用户页已登录的斗鱼账号，启用项参与运行时选择"></Tip>
+              </template>
+              <div style="display: flex; width: 100%; flex-direction: column; gap: 10px">
+                <div style="display: flex; gap: 10px">
+                  <n-button
+                    type="primary"
+                    ghost
+                    style="width: fit-content"
+                    @click="addDouyuCookieAccount"
+                    :disabled="globalFieldsObj.douyuCookieAccounts"
+                    >新增账号</n-button
+                  >
+                </div>
+                <div
+                  v-for="(account, index) in config.douyuCookieAccounts"
+                  :key="index"
+                  style="display: flex; gap: 10px; align-items: center"
+                >
+                  <n-select
+                    v-model:value="account.uid"
+                    :options="douyuUserList"
+                    label-field="name"
+                    value-field="uid"
+                    clearable
+                    placeholder="选择账号"
+                    :disabled="globalFieldsObj.douyuCookieAccounts"
+                    style="width: 200px"
+                  />
+                  <n-input-number
+                    v-model:value="account.weight"
+                    :min="1"
+                    :show-button="false"
+                    placeholder="随机"
+                    clearable
+                    :parse="(val: string) => (val ? Number(val.replace(/\D/g, '')) : null)"
+                    :format="(val: number | null) => (val ? String(val) : '')"
+                    style="width: 100px"
+                    :disabled="globalFieldsObj.douyuCookieAccounts"
+                  >
+                    <template #prefix>权重</template>
+                  </n-input-number>
+                  <n-switch
+                    v-model:value="account.enabled"
+                    :disabled="globalFieldsObj.douyuCookieAccounts"
+                  />
+                  <n-button
+                    type="error"
+                    ghost
+                    :disabled="globalFieldsObj.douyuCookieAccounts"
+                    @click="removeDouyuCookieAccount(index)"
+                    >删除</n-button
+                  >
+                </div>
+              </div>
+              <n-checkbox
+                v-model:checked="globalFieldsObj.douyuCookieAccounts"
+                class="global-checkbox"
+                >全局</n-checkbox
+              >
+            </n-form-item>
+            <n-form-item>
+              <template #label>
+                <Tip
                   :text="textInfo.common.titleKeywords.text"
                   :tip="textInfo.common.titleKeywords.tip"
                 ></Tip>
@@ -905,7 +983,7 @@ import { useConfirm, useBreakpoints } from "@renderer/hooks";
 import { defaultRecordConfig } from "@biliLive-tools/shared/enum.js";
 import { cloneDeep } from "lodash-es";
 
-import type { Recorder, DouyinCookieAccount } from "@biliLive-tools/types";
+import type { Recorder, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
 
 interface Props {
   id?: string;
@@ -947,6 +1025,8 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
     cookie: true,
     douyinCookieMode: true,
     douyinCookieAccounts: true,
+    douyuCookieMode: true,
+    douyuCookieAccounts: true,
     proxy: true,
     doubleScreen: true,
     useServerTimestamp: true,
@@ -1002,6 +1082,32 @@ const douyinCookieAccountsSorted = computed(() => {
     .map((item) => item.account);
 });
 
+const createDouyuCookieAccount = (): DouyuCookieAccount => ({
+  uid: 0,
+  enabled: true,
+  weight: null,
+});
+
+const ensureDouyuCookieConfig = () => {
+  if (!config.value || config.value.providerId !== "DouYu") {
+    return;
+  }
+  config.value.douyuCookieMode = config.value.douyuCookieMode === "always" ? "always" : "off";
+  if (!Array.isArray(config.value.douyuCookieAccounts)) {
+    config.value.douyuCookieAccounts = [];
+  }
+};
+
+const addDouyuCookieAccount = () => {
+  ensureDouyuCookieConfig();
+  config.value.douyuCookieAccounts?.push(createDouyuCookieAccount());
+};
+
+const removeDouyuCookieAccount = (index: number) => {
+  ensureDouyuCookieConfig();
+  config.value.douyuCookieAccounts?.splice(index, 1);
+};
+
 const confirmDialog = useConfirm();
 const confirm = async () => {
   if (!config.value.channelId) {
@@ -1012,6 +1118,7 @@ const confirm = async () => {
     return;
   }
   ensureDouyinCookieConfig();
+  ensureDouyuCookieConfig();
 
   if (config.value.providerId === "Bilibili" && !config.value.uid) {
     const [status] = await confirmDialog.warning({
@@ -1054,6 +1161,7 @@ const getRecordSetting = async () => {
   if (!props.id) return;
   config.value = await recoderApi.get(props.id);
   ensureDouyinCookieConfig();
+  ensureDouyuCookieConfig();
   if (!config.value.handleTime) {
     config.value.handleTime = [null, null];
   }
@@ -1086,6 +1194,7 @@ const onChannelIdInputEnd = async () => {
     // 直接使用后端返回的完整配置
     config.value = res;
     ensureDouyinCookieConfig();
+    ensureDouyuCookieConfig();
     owner.value = res.remarks || "";
   } finally {
     channelIdResolving.value = false;
@@ -1119,6 +1228,10 @@ const initGlobalFields = () => {
     douyinCookieMode: !(config.value?.noGlobalFollowFields ?? []).includes("douyinCookieMode"),
     douyinCookieAccounts: !(config.value?.noGlobalFollowFields ?? []).includes(
       "douyinCookieAccounts",
+    ),
+    douyuCookieMode: !(config.value?.noGlobalFollowFields ?? []).includes("douyuCookieMode"),
+    douyuCookieAccounts: !(config.value?.noGlobalFollowFields ?? []).includes(
+      "douyuCookieAccounts",
     ),
     proxy: !(config.value?.noGlobalFollowFields ?? []).includes("proxy"),
     doubleScreen: !(config.value?.noGlobalFollowFields ?? []).includes("doubleScreen"),
@@ -1249,6 +1362,12 @@ watch(
     if (val.douyinCookieAccounts) {
       config.value.douyinCookieAccounts = cloneDeep(appConfig.value.recorder.douyin.accounts ?? []);
     }
+    if (val.douyuCookieMode) {
+      config.value.douyuCookieMode = appConfig.value.recorder.douyu.mode;
+    }
+    if (val.douyuCookieAccounts) {
+      config.value.douyuCookieAccounts = cloneDeep(appConfig.value.recorder.douyu.accounts ?? []);
+    }
     if (val.useServerTimestamp) {
       config.value.useServerTimestamp = appConfig.value.recorder.useServerTimestamp;
     }
@@ -1282,6 +1401,7 @@ watch(
   () => [showModal.value, config.value?.providerId],
   () => {
     ensureDouyinCookieConfig();
+    ensureDouyuCookieConfig();
   },
   { immediate: true },
 );
