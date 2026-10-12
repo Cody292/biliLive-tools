@@ -61,25 +61,17 @@ function createRecorder(opts: RecorderCreateOpts): Recorder {
       };
     },
     async getStream() {
-      const res = await requestStreamWithDouyuFailover(
-        {
-          mode: this.douyuCookieMode,
-          auth: this.auth,
-          candidates: this.douyuAuthCandidates,
-        },
-        (auth) =>
-          getStream({
-            channelId: this.channelId,
-            quality: this.quality,
-            source: this.source,
-            strictQuality: false,
-            onlyAudio: this.onlyAudio,
-            avoidEdgeCDN: true,
-            codecName: this.codecName,
-            api: this.api,
-            auth,
-          }),
-      );
+      const res = await getStream({
+        channelId: this.channelId,
+        quality: this.quality,
+        source: this.source,
+        strictQuality: false,
+        onlyAudio: this.onlyAudio,
+        avoidEdgeCDN: true,
+        codecName: this.codecName,
+        api: this.api,
+        auth: "",
+      });
       return res.currentStream;
     },
   };
@@ -136,12 +128,25 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   } else {
     this.tempStopIntervalCheck = false;
   }
-  if (this.tempStopIntervalCheck) return null;
-  if (!living) return null;
+  const clearDouyuCookieLabelEarly = () => {
+    const { currentCookieLabel: _drop, ...restExtra } = this.extra ?? {};
+    this.extra = restExtra;
+  };
+  if (this.tempStopIntervalCheck) {
+    clearDouyuCookieLabelEarly();
+    return null;
+  }
+  if (!living) {
+    clearDouyuCookieLabelEarly();
+    return null;
+  }
 
   // 检查标题是否包含关键词
   console.log("检查标题关键词", { title, channelId: this.channelId, isManualStart });
-  if (utils.checkTitleKeywordsBeforeRecord(title, this, isManualStart)) return null;
+  if (utils.checkTitleKeywordsBeforeRecord(title, this, isManualStart)) {
+    clearDouyuCookieLabelEarly();
+    return null;
+  }
 
   const qualityRetryLeft = (await this.cache.get("qualityRetryLeft")) ?? this.qualityRetry;
   const strictQuality = utils.shouldUseStrictQuality(
@@ -150,6 +155,13 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     isManualStart,
   );
 
+  const clearDouyuCookieLabel = () => {
+    const { currentCookieLabel: _drop, ...restExtra } = this.extra ?? {};
+    this.extra = restExtra;
+  };
+
+  clearDouyuCookieLabel();
+
   let res: Awaited<ReturnType<typeof getStream>>;
   try {
     res = await requestStreamWithDouyuFailover(
@@ -157,6 +169,14 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         mode: this.douyuCookieMode,
         auth: this.auth,
         candidates: this.douyuAuthCandidates,
+        onResolved: (info) => {
+          const { currentCookieLabel: _drop, ...restExtra } = this.extra ?? {};
+          const label = info.label?.trim();
+          this.extra = {
+            ...restExtra,
+            ...(label ? { currentCookieLabel: label } : {}),
+          };
+        },
       },
       (auth) =>
         getStream({
@@ -172,6 +192,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         }),
     );
   } catch (err) {
+    clearDouyuCookieLabel();
     if (qualityRetryLeft > 0) await this.cache.set("qualityRetryLeft", qualityRetryLeft - 1);
     this.emit("stateChange", {
       state: "check-error",
@@ -421,7 +442,20 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   }
 
   const downloaderArgs = downloader.getArguments();
-  downloader.run();
+  try {
+    downloader.run();
+  } catch (error) {
+    try {
+      client.stop();
+    } catch (stopError) {
+      this.emit("DebugLog", {
+        type: "common",
+        text: `douyu ${this.channelId} danma stop after downloader start error: ${String(stopError)}`,
+      });
+    }
+    clearDouyuCookieLabel();
+    throw error;
+  }
 
   const cut = utils.singleton<RecordHandle["cut"]>(async () => {
     if (!this.recordHandle) return;
@@ -441,6 +475,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         text: `stop record error: ${String(err)}`,
       });
     }
+    clearDouyuCookieLabel();
     this.usedStream = undefined;
     this.usedSource = undefined;
     this.emit("RecordStop", { recordHandle: this.recordHandle, reason });

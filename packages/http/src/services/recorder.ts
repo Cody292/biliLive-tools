@@ -361,15 +361,19 @@ export function recorderToClient(recorder: Recorder): ClientRecorder {
     liveInfo: recorder.liveInfo,
   };
 
-  if (recorder.providerId === "DouYin" && clientRecorder.extra?.currentDouyinCookieRemark) {
-    const cookieMode = recorder.douyinCookieMode ?? "always";
-    const shouldApplyCookie = cookieMode !== "off";
-    const shouldShowRemark = recorder.state === "recording" && shouldApplyCookie;
-
-    if (!shouldShowRemark) {
-      const { currentDouyinCookieRemark: _hidden, ...restExtra } = clientRecorder.extra;
-      clientRecorder.extra = restExtra;
-    }
+  if (clientRecorder.extra) {
+    const {
+      currentCookieLabel,
+      currentDouyinCookieRemark: _legacyRemark,
+      ...restExtra
+    } = clientRecorder.extra as typeof clientRecorder.extra & {
+      currentDouyinCookieRemark?: string;
+    };
+    const shouldShowCookieLabel =
+      recorder.state === "recording" && Boolean(currentCookieLabel);
+    clientRecorder.extra = shouldShowCookieLabel
+      ? { ...restExtra, currentCookieLabel }
+      : { ...restExtra };
   }
 
   return clientRecorder;

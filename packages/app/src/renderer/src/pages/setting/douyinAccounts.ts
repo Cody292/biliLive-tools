@@ -4,6 +4,7 @@ export type DouyinAccountIdentity = {
   readonly nickname?: string;
   readonly uid?: string;
   readonly sec_user_id?: string;
+  readonly avatar?: string;
 };
 
 const DOUYIN_STABLE_IDENTITY_COOKIE_NAMES = [
@@ -158,6 +159,10 @@ const applyScanLoginToAccount = (params: {
   params.account.healthReason = undefined;
   params.account.healthCheckedAt = Date.now();
   params.account.remark = pickDouyinAccountRemark(params.identity, fallbackRemark);
+  const avatar = pickText(params.identity.avatar);
+  if (avatar !== "") {
+    params.account.avatar = avatar;
+  }
 };
 
 /** 扫码落盘：必须先等 identity；失败不入池。同用户合并且不改 weight。 */

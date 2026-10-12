@@ -78,6 +78,57 @@ export function nextDouyuFailoverAccount(
   return selectable.find((account) => !failedUids.has(account.uid));
 }
 
+export type DouyuAuthCandidate = {
+  uid: number;
+  cookie: string;
+  weight?: number;
+  label?: string;
+};
+
+export type DouyuCookieInjection = {
+  readonly auth: string | undefined;
+  readonly candidates: DouyuAuthCandidate[] | undefined;
+  readonly currentCookieLabel: string | undefined;
+};
+
+export type DouyuUserLookup = (uid: number) =>
+  | { name?: string; loginCookies?: { main?: string } }
+  | undefined;
+
+export function resolveDouyuCookieInjection(opts: {
+  readonly mode: string | undefined;
+  readonly accounts: readonly DouyuPoolEntry[] | null | undefined;
+  readonly readUser: DouyuUserLookup;
+}): DouyuCookieInjection {
+  if (opts.mode !== "always") {
+    return {
+      auth: undefined,
+      candidates: undefined,
+      currentCookieLabel: undefined,
+    };
+  }
+
+  const selectable = deriveSelectableDouyuCookieAccounts(opts.accounts, opts.readUser);
+  const candidates =
+    selectable.length > 0
+      ? selectable.map(({ uid, cookie, weight }) => {
+          const name = opts.readUser(uid)?.name?.trim();
+          return {
+            uid,
+            cookie,
+            weight,
+            label: name || String(uid),
+          };
+        })
+      : undefined;
+
+  return {
+    auth: undefined,
+    candidates,
+    currentCookieLabel: undefined,
+  };
+}
+
 export type DouyinCookieAccountEntry = {
   remark?: string;
   cookie?: string;

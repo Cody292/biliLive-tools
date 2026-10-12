@@ -41,7 +41,7 @@
       </div>
       <div class="content">
         <img class="avatar" :src="item.avatar" referrerpolicy="no-referrer" />
-        <div style="display: flex; flex-direction: column; justify-content: space-between">
+        <div class="info">
           <div style="display: flex; gap: 5px; align-items: center">
             <div class="owner" :title="item.remarks">{{ item.owner || item.remarks }}</div>
             <n-icon v-if="item.living" size="20" title="直播中" class="icon-live">
@@ -78,13 +78,12 @@
             <a class="link tag channel" target="_blank" :href="item.channelURL" title="点击可访问">
               {{ item.providerId }}</a
             >
-            <span class="tag area" v-if="item.area">{{ item.area }}</span>
             <span
-              v-if="item.providerId === 'DouYin' && item.extra?.currentDouyinCookieRemark"
+              v-if="shouldShowCookieTag(item)"
               class="tag cookie-remark"
-              :title="`当前 Cookie 备注：${item.extra.currentDouyinCookieRemark}`"
+              :title="getCookieLabel(item)"
             >
-              当前 Cookie：{{ item.extra.currentDouyinCookieRemark }}
+              当前 Cookie：{{ getCookieLabel(item) }}
             </span>
             <span
               class="tag state"
@@ -173,6 +172,23 @@ const stateMap = {
   "title-blocked": "标题屏蔽",
   "charge-skipped": "无法录制",
 };
+
+interface CardItemLike {
+  state?: string;
+  extra?: {
+    currentCookieLabel?: string;
+    currentDouyinCookieRemark?: string;
+  };
+}
+
+function getCookieLabel(item?: CardItemLike): string {
+  const label = item?.extra?.currentCookieLabel || item?.extra?.currentDouyinCookieRemark;
+  return typeof label === "string" ? label.trim() : "";
+}
+
+function shouldShowCookieTag(item?: CardItemLike): boolean {
+  return item?.state === "recording" && Boolean(getCookieLabel(item));
+}
 </script>
 
 <style scoped lang="less">
@@ -266,6 +282,15 @@ const stateMap = {
       height: 50px;
       border-radius: 5px;
       margin-left: -10px;
+      flex-shrink: 0;
+    }
+    .info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 4px;
     }
     .owner {
       font-size: 16px;
@@ -293,7 +318,10 @@ const stateMap = {
 .tags {
   // margin-top: 5px;
   display: flex;
+  align-items: center;
   gap: 5px;
+  min-width: 0;
+  max-width: calc(100% - 28px);
 
   .tag {
     background-color: #f0f0f0;
@@ -310,11 +338,13 @@ const stateMap = {
     }
 
     &.channel {
+      flex-shrink: 0;
       background-color: #e6f7ff;
       color: #1890ff;
     }
 
     &.state {
+      flex-shrink: 0;
       background-color: #fff1b8;
       color: #d48806;
       cursor: pointer;
@@ -330,12 +360,19 @@ const stateMap = {
     }
 
     &.record-blocked {
+      flex-shrink: 0;
       background-color: #f0f0f0;
       color: #8c8c8c;
       cursor: pointer;
     }
 
     &.cookie-remark {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      box-sizing: border-box;
       background-color: #f6ffed;
       color: #389e0d;
     }

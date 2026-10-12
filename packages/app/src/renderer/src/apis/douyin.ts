@@ -91,6 +91,7 @@ export interface DouyinAccountIdentity {
   readonly nickname?: string;
   readonly uid?: string;
   readonly sec_user_id?: string;
+  readonly avatar?: string;
 }
 
 export interface DouyinAccountProbeParams {

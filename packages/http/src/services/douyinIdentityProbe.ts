@@ -13,6 +13,7 @@ export type DouyinAccountIdentity = {
   readonly nickname?: string;
   readonly uid?: string;
   readonly sec_user_id?: string;
+  readonly avatar?: string;
 };
 
 export type ProbeOnceOk = { readonly ok: true; readonly identity?: DouyinAccountIdentity };
@@ -75,16 +76,30 @@ function readUser(payload: Record<string, unknown>): Record<string, unknown> | u
   return isPlainRecord(nested) ? nested : undefined;
 }
 
+function firstAvatarUrl(user: Record<string, unknown>): string | undefined {
+  const thumb = user.avatar_thumb;
+  if (!isPlainRecord(thumb)) return undefined;
+  const urlList = thumb.url_list;
+  if (!Array.isArray(urlList)) return undefined;
+  for (const entry of urlList) {
+    const picked = pickText(entry);
+    if (picked !== undefined) return picked;
+  }
+  return undefined;
+}
+
 export function normalizeDouyinIdentityPayload(payload: unknown): DouyinAccountIdentity {
   if (!isPlainRecord(payload)) return {};
   const user = readUser(payload) ?? payload;
   const nickname = firstText(user.nickname, user.nick_name, user.name, payload.nickname);
   const uid = firstText(user.uid, user.user_id, user.userId, payload.uid);
   const secUserID = firstText(user.sec_uid, user.sec_user_id, user.secUid, payload.sec_user_id);
+  const avatar = firstAvatarUrl(user);
   return {
     ...(nickname === undefined ? {} : { nickname }),
     ...(uid === undefined ? {} : { uid }),
     ...(secUserID === undefined ? {} : { sec_user_id: secUserID }),
+    ...(avatar === undefined ? {} : { avatar }),
   };
 }
 

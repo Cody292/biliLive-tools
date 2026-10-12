@@ -224,6 +224,7 @@ export {
   readDouyuUser,
   readDouyuUserList,
   writeDouyuUser,
+  ensureDouyuAccountInPool,
   isDouyuUserPayload,
   deleteDouyuUser,
   validateDouyuUser,
@@ -241,8 +242,11 @@ export {
   pickWeightedAccount,
   nextDouyuFailoverAccount,
   pickWeightedDouyinAccount,
+  resolveDouyuCookieInjection,
   type DouyuPoolEntry,
   type SelectableDouyuAccount,
   type DouyinCookieAccountEntry,
+  type DouyuAuthCandidate,
+  type DouyuCookieInjection,
 } from "./recorder/accountPick.js";
 

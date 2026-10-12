@@ -70,8 +70,8 @@
         </div>
         <div class="container">
           <div v-for="item in douyuUserList" :key="item.uid" class="card douyu-card">
-            <div class="expires" :class="{ expired: douyuRemainingDays(item.createdAt) === 0 }">
-              {{ douyuExpiryText(item.createdAt) }}
+            <div class="expires" :class="{ expired: douyuRemainingDays(item) === 0 }">
+              {{ douyuExpiryText(item) }}
             </div>
             <span class="username">{{ item.name }}</span>
             <img
@@ -107,6 +107,16 @@
             <span class="username douyin-remark" :title="item.remark || undefined">
               {{ item.remark || "" }}
             </span>
+            <img
+              v-if="item.avatar?.trim()"
+              :src="item.avatar"
+              alt=""
+              referrerpolicy="no-referrer"
+              class="face"
+            />
+            <div v-else class="face-placeholder">
+              {{ item.remark?.trim().slice(0, 1) || "" }}
+            </div>
             <n-tag
               :type="getDouyinAccountHealthTagType(item.healthStatus)"
               size="small"
@@ -340,16 +350,34 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const currentTime = ref(Date.now());
 let expiryTimer: ReturnType<typeof setInterval> | undefined;
 
-const douyuRemainingDays = (createdAt: number): number | undefined => {
-  if (!Number.isFinite(createdAt) || createdAt <= 0) return undefined;
+/** 剩余天数按最近成功授权更新时间 updatedAt 起算，历史缺失时回退 createdAt。 */
+const douyuAuthAnchorAt = (item: {
+  createdAt?: number;
+  updatedAt?: number;
+}): number | undefined => {
+  if (typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt) && item.updatedAt > 0) {
+    return item.updatedAt;
+  }
+  if (typeof item.createdAt === "number" && Number.isFinite(item.createdAt) && item.createdAt > 0) {
+    return item.createdAt;
+  }
+  return undefined;
+};
+
+const douyuRemainingDays = (item: {
+  createdAt?: number;
+  updatedAt?: number;
+}): number | undefined => {
+  const anchorAt = douyuAuthAnchorAt(item);
+  if (anchorAt === undefined) return undefined;
   return Math.max(
     0,
-    Math.ceil((createdAt + DOUYU_VALID_DAYS * DAY_MS - currentTime.value) / DAY_MS),
+    Math.ceil((anchorAt + DOUYU_VALID_DAYS * DAY_MS - currentTime.value) / DAY_MS),
   );
 };
 
-const douyuExpiryText = (createdAt: number): string => {
-  const remaining = douyuRemainingDays(createdAt);
+const douyuExpiryText = (item: { createdAt?: number; updatedAt?: number }): string => {
+  const remaining = douyuRemainingDays(item);
   return remaining === undefined ? "有效期未知" : `剩余 ${remaining} / ${DOUYU_VALID_DAYS} 天`;
 };
 
@@ -394,8 +422,9 @@ const douyuLogin = async () => {
   if (status) douyuLoginVisible.value = true;
 };
 
-const douyuLoginConfirm = async () => {
+  const douyuLoginConfirm = async () => {
   await getDouyuUsers();
+  await appConfigStore.getAppConfig();
 };
 
 const douyuUpdateAuth = async (uid: number) => {
@@ -792,6 +821,11 @@ onActivated(() => {
     gap: 6px;
     justify-content: flex-start;
     padding-bottom: 24px;
+    .face,
+    .face-placeholder {
+      width: 80px;
+      height: 80px;
+    }
     .douyin-remark {
       width: 100%;
       text-align: center;

@@ -27,6 +27,11 @@ import {
   probeAccountsNeedingCheck,
   resetAuthFailForAccount,
 } from "./cookieAccountSelection.js";
+import {
+  createDouyinDanmaRecoveryGate,
+  planDouyinDanmaRecoveryAfterCandidateLookup,
+  resetDouyinDanmaRecoveryAttempts,
+} from "./danmaRecovery.js";
 
 import DouYinDanmaClient from "douyin-danma-listener";
 
@@ -263,11 +268,24 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   } else {
     this.tempStopIntervalCheck = false;
   }
-  if (this.tempStopIntervalCheck) return null;
-  if (!this.liveInfo.living) return null;
+  const stripStaleDouyinCookieLabel = () => {
+    const { currentCookieLabel: _drop, ...restExtra } = this.extra ?? {};
+    this.extra = restExtra;
+  };
+  if (this.tempStopIntervalCheck) {
+    stripStaleDouyinCookieLabel();
+    return null;
+  }
+  if (!this.liveInfo.living) {
+    stripStaleDouyinCookieLabel();
+    return null;
+  }
 
   // 检查标题是否包含关键词
-  if (utils.checkTitleKeywordsBeforeRecord(this.liveInfo.title, this, isManualStart)) return null;
+  if (utils.checkTitleKeywordsBeforeRecord(this.liveInfo.title, this, isManualStart)) {
+    stripStaleDouyinCookieLabel();
+    return null;
+  }
 
   const qualityRetryLeft = (await this.cache.get("qualityRetryLeft")) ?? this.qualityRetry;
   const strictQuality = utils.shouldUseStrictQuality(
@@ -302,6 +320,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     // 再检查一次，上一个接口可能不存在标题参数
     if (utils.checkTitleKeywordsBeforeRecord(this.liveInfo.title, this, isManualStart)) return null;
   } catch (err) {
+    stripStaleDouyinCookieLabel();
     if (qualityRetryLeft > 0) await this.cache.set("qualityRetryLeft", qualityRetryLeft - 1);
 
     this.emit("stateChange", {
@@ -320,7 +339,8 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   this.usedSource = stream.source;
 
   const cookieMode = this.douyinCookieMode ?? "always";
-  const shouldApplyCookie = cookieMode !== "off";
+  const shouldApplyCookie =
+    cookieMode !== "off" && this.disableProvideCommentsWhenRecording !== true;
   const authDouyinCookie = normalizeDouyinCookie(this.auth);
   /**
    * §9.5：选号/恢复每次从权威源 `this.douyinCookieAccounts` 重算下标。
@@ -365,27 +385,35 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   const findAvailableDouyinCookieAccountIndex = () => {
     // §9.5 + 隔离过滤：每次选号重算
     const initialAccountIndices = getSelectableDouyinCookieAccountIndices();
-    const availableAccountIndex = initialAccountIndices.find((accountIndex) => {
+    const capacityOk = initialAccountIndices.filter((accountIndex) => {
       const cookie = getDouyinCookieForAccountIndex(accountIndex);
       return !cookie || canAcquireDouyinCookieRecording(cookie);
     });
-    if (availableAccountIndex !== undefined) return availableAccountIndex;
-    return (
-      initialAccountIndices.find((accountIndex) => getDouyinCookieForAccountIndex(accountIndex)) ??
-      NO_DOUYIN_COOKIE_ACCOUNT_INDEX
-    );
-  };
-  // 探针 B：选号/换号前对 unknown 或过窗账号做限流探测（注入 probeOnce；无注入则 no-op）
-  if (shouldApplyCookie) {
-    try {
-      await probeAccountsNeedingCheck({
-        accounts: this.douyinCookieAccounts,
-      });
-    } catch {
-      // best-effort：探针失败不阻断录制
+    const pickPool =
+      capacityOk.length > 0
+        ? capacityOk
+        : initialAccountIndices.filter((accountIndex) =>
+            Boolean(getDouyinCookieForAccountIndex(accountIndex)),
+          );
+    if (pickPool.length === 0) return NO_DOUYIN_COOKIE_ACCOUNT_INDEX;
+    if (pickPool.length === 1) return pickPool[0];
+
+    const weighted = pickPool.map((accountIndex) => {
+      const account =
+        accountIndex >= 0 ? this.douyinCookieAccounts?.[accountIndex] : undefined;
+      const raw = Number(account?.weight);
+      const weight = Number.isFinite(raw) && raw > 0 ? raw : 1;
+      return { accountIndex, weight };
+    });
+    const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+    let random = Math.random() * totalWeight;
+    for (const item of weighted) {
+      random -= item.weight;
+      if (random <= 0) return item.accountIndex;
     }
-  }
-  let activeDouyinCookieAccountIndex = findAvailableDouyinCookieAccountIndex();
+    return weighted[weighted.length - 1]?.accountIndex ?? NO_DOUYIN_COOKIE_ACCOUNT_INDEX;
+  };
+  let activeDouyinCookieAccountIndex = NO_DOUYIN_COOKIE_ACCOUNT_INDEX;
   let acquiredDouyinCookie: string | undefined;
   let hasNotifiedDouyinCookieLimit = false;
   const getActiveDouyinCookieAccount = () => {
@@ -396,12 +424,21 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     return acquiredDouyinCookie;
   };
   const applyActiveDouyinCookieRemark = () => {
+    if (!shouldApplyCookie) {
+      const { currentCookieLabel: _previousLabel, ...extraWithoutLabel } = this.extra ?? {};
+      this.extra = extraWithoutLabel;
+      return;
+    }
     const remark = getActiveDouyinCookieAccount()?.remark?.trim();
-    const { currentDouyinCookieRemark: _previousRemark, ...extraWithoutRemark } = this.extra ?? {};
+    const { currentCookieLabel: _previousLabel, ...extraWithoutLabel } = this.extra ?? {};
     this.extra = {
-      ...extraWithoutRemark,
-      ...(remark ? { currentDouyinCookieRemark: remark } : {}),
+      ...extraWithoutLabel,
+      ...(remark ? { currentCookieLabel: remark } : {}),
     };
+  };
+  const clearActiveDouyinCookieLabel = () => {
+    const { currentCookieLabel: _previousLabel, ...extraWithoutLabel } = this.extra ?? {};
+    this.extra = extraWithoutLabel;
   };
   const notifyDouyinCookieLimit = () => {
     if (!hasConfiguredDouyinCookie() || hasNotifiedDouyinCookieLimit) return;
@@ -439,7 +476,21 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     acquireDouyinCookieRecording(nextCookie, { allowOverflow: shouldOverflowDouyinCookie });
     acquiredDouyinCookie = nextCookie;
   };
-  applyActiveDouyinCookieRemark();
+  const prepareDouyinCookieForDanma = async () => {
+    if (!shouldApplyCookie) {
+      clearActiveDouyinCookieLabel();
+      return;
+    }
+    try {
+      await probeAccountsNeedingCheck({
+        accounts: this.douyinCookieAccounts,
+      });
+    } catch {
+      // best-effort：探针失败不阻断录制
+    }
+    activeDouyinCookieAccountIndex = findAvailableDouyinCookieAccountIndex();
+    applyActiveDouyinCookieRemark();
+  };
 
   const getDouyinDanmaRecoveryKey = (accountIndex: number, hostIndex: number) =>
     `${getDouyinCookieForAccountIndex(accountIndex) ?? ""}\n${douyinDanmaHosts[hostIndex] ?? ""}`;
@@ -481,7 +532,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       }),
     );
 
-    return candidates
+    const remaining = candidates
       .filter(
         (candidate) =>
           candidate.accountIndex !== activeDouyinCookieAccountIndex ||
@@ -506,7 +557,8 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
           canAcquireDouyinCookieRecording(candidateCookie)
         );
       })
-      .sort((left, right) => left.priority - right.priority)[0];
+      .sort((left, right) => left.priority - right.priority);
+    return remaining.length > 0 ? remaining[0] : undefined;
   };
 
   /** 探针 A：鉴权类失败累计 → invalid；非鉴权不升级；无全局熔断 */
@@ -637,6 +689,11 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   let isDanmaStopped = false;
   const ignoredDanmaCloseClients = new WeakSet<DouYinDanmaClient>();
   const shouldManageDouyinDanmaRecovery = shouldApplyCookie;
+  const danmaRecoveryGate = createDouyinDanmaRecoveryGate();
+  const waitDanmaRecoveryRound = (delayMs: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
   const getActiveDouyinDanmaHost = () => douyinDanmaHosts[activeDouyinDanmaHostIndex];
   const createDanmaClient = () =>
     new DouYinDanmaClient(String(this.liveInfo?.liveId ?? ""), {
@@ -653,8 +710,12 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       throw error;
     }
   };
-  const attachDanmaHandlers = (client: DouYinDanmaClient) => {
+  const attachDanmaHandlers = (client: DouYinDanmaClient, generation: number) => {
+    const isLiveDanmaEvent = () =>
+      client === activeDanmaClient &&
+      danmaRecoveryGate.isCurrentGeneration(generation);
     client.on("chat", (msg) => {
+      if (!isLiveDanmaEvent()) return;
       const extraDataController = downloader.getExtraDataController();
       if (!extraDataController) return;
       let timestamp: number = Date.now();
@@ -676,6 +737,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       extraDataController.addMessage(comment);
     });
     client.on("privilegeScreenChat", (msg) => {
+      if (!isLiveDanmaEvent()) return;
       const extraDataController = downloader.getExtraDataController();
       if (!extraDataController) return;
       const comment: Comment = {
@@ -693,6 +755,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       extraDataController.addMessage(comment);
     });
     client.on("screenChat", (msg) => {
+      if (!isLiveDanmaEvent()) return;
       const extraDataController = downloader.getExtraDataController();
       if (!extraDataController) return;
       const comment: Comment = {
@@ -709,9 +772,9 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       extraDataController.addMessage(comment);
     });
     client.on("gift", (msg) => {
-      const extraDataController = downloader.getExtraDataController();
-      if (!extraDataController) return;
+      if (!isLiveDanmaEvent()) return;
       if (this.saveGiftDanma === false) return;
+      if (!downloader.getExtraDataController()) return;
 
       const serverTimestamp =
         Number(msg.common.createTime) > 9999999999
@@ -740,20 +803,19 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
 
       const timer = setTimeout(() => {
         const cachedGift = giftMessageCache.get(groupId);
-        if (cachedGift) {
-          this.emit("Message", cachedGift.gift);
-          extraDataController.addMessage(cachedGift.gift);
-          giftMessageCache.delete(groupId);
-        }
+        if (!cachedGift) return;
+        giftMessageCache.delete(groupId);
+        this.emit("Message", cachedGift.gift);
+        downloader.getExtraDataController()?.addMessage(cachedGift.gift);
       }, GIFT_DELAY);
 
       giftMessageCache.set(groupId, { gift, timer });
     });
     client.on("reconnect", handleDanmaReconnect);
-    client.on("error", (err) => handleDanmaError(client, err));
+    client.on("error", (err) => handleDanmaError(client, err, generation));
     client.on("init", handleDanmaInit);
-    client.on("open", () => handleDanmaOpen(client));
-    client.on("close", () => handleDanmaClose(client));
+    client.on("open", () => handleDanmaOpen(client, generation));
+    client.on("close", () => handleDanmaClose(client, generation));
   };
   const startDanmaClient = () => {
     if (isDanmaStopped) return;
@@ -763,7 +825,8 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         getDouyinDanmaRecoveryKey(activeDouyinCookieAccountIndex, activeDouyinDanmaHostIndex),
       );
       activeDanmaClient = createDanmaClient();
-      attachDanmaHandlers(activeDanmaClient);
+      const generation = danmaRecoveryGate.nextGeneration();
+      attachDanmaHandlers(activeDanmaClient, generation);
       activeDanmaClient.connect();
     } catch (error) {
       const failedClient = activeDanmaClient;
@@ -779,48 +842,92 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         }
       }
       releaseAcquiredDouyinCookie();
+      clearActiveDouyinCookieLabel();
       throw error;
     }
   };
-  const rotateDouyinCookieAndHostAfterDanmaFailure = async () => {
-    if (isDanmaStopped) {
+  const rotateDouyinCookieAndHostAfterDanmaFailure = async (generation: number) => {
+    const admit = danmaRecoveryGate.beginRecovery({
+      stopped: isDanmaStopped,
+      unmanaged: !shouldManageDouyinDanmaRecovery,
+      clientGeneration: generation,
+    });
+    if (!admit.ok) {
       return false;
     }
-    if (!shouldManageDouyinDanmaRecovery) {
-      return false;
-    }
-    // 换号前探针 B（30s 限流 + shouldProbe）
-    await runProbeBBeforeSwitch();
-    const previousClient = activeDanmaClient;
-    const candidate = findNextDanmaRecoveryCandidate();
-    if (!candidate) {
-      return false;
-    }
-    if (previousClient) {
-      try {
-        closeDanmaClient(previousClient);
-      } catch (error) {
-        this.emit("DebugLog", {
-          type: "common",
-          text: `douyin ${this.channelId} previous danma close error: ${formatUnknownError(error)}`,
-        });
+    try {
+      if (isDanmaStopped) {
         return false;
       }
+      // 换号前探针 B（30s 限流 + shouldProbe）
+      await runProbeBBeforeSwitch();
+      if (isDanmaStopped || !danmaRecoveryGate.isCurrentGeneration(generation)) {
+        return false;
+      }
+      const previousClient = activeDanmaClient;
+      const closePreviousClient = () => {
+        if (!previousClient) return true;
+        try {
+          closeDanmaClient(previousClient);
+          return true;
+        } catch (error) {
+          this.emit("DebugLog", {
+            type: "common",
+            text: `douyin ${this.channelId} previous danma close error: ${formatUnknownError(error)}`,
+          });
+          return false;
+        }
+      };
+      const switchToCandidate = (candidate: {
+        accountIndex: number;
+        hostIndex: number;
+      }) => {
+        if (!closePreviousClient()) return false;
+        activeDouyinCookieAccountIndex = candidate.accountIndex;
+        activeDouyinDanmaHostIndex = candidate.hostIndex;
+        ensureActiveDouyinCookieAcquired();
+        applyActiveDouyinCookieRemark();
+        // 换号成功：新账号 auth-fail 计数保持独立；旧号若未达阈值保留计数
+        const remark =
+          getActiveDouyinCookieAccount()?.remark?.trim() ||
+          (getActiveDouyinCookie() ? "未命名账号" : "无 Cookie 降级");
+        this.emit("DebugLog", {
+          type: "common",
+          text: `douyin ${this.channelId} danma switch cookie account and host: ${remark}, ${getActiveDouyinDanmaHost()}`,
+        });
+        startDanmaClient();
+        return true;
+      };
+
+      const plan = planDouyinDanmaRecoveryAfterCandidateLookup(
+        findNextDanmaRecoveryCandidate(),
+      );
+      if (plan.kind === "switch") {
+        return switchToCandidate(plan.candidate);
+      }
+
+      this.emit("DebugLog", {
+        type: "common",
+        text: `douyin ${this.channelId} danma recovery candidates exhausted, retry in ${plan.delayMs}ms`,
+      });
+      await waitDanmaRecoveryRound(plan.delayMs);
+      if (isDanmaStopped || !danmaRecoveryGate.isCurrentGeneration(generation)) {
+        return false;
+      }
+      resetDouyinDanmaRecoveryAttempts(attemptedDouyinDanmaRecoveryKeys);
+      const nextRound = planDouyinDanmaRecoveryAfterCandidateLookup(
+        findNextDanmaRecoveryCandidate(),
+      );
+      if (nextRound.kind === "switch") {
+        return switchToCandidate(nextRound.candidate);
+      }
+      if (!closePreviousClient()) return false;
+      if (isDanmaStopped) return false;
+      startDanmaClient();
+      return true;
+    } finally {
+      danmaRecoveryGate.endRecovery();
     }
-    activeDouyinCookieAccountIndex = candidate.accountIndex;
-    activeDouyinDanmaHostIndex = candidate.hostIndex;
-    ensureActiveDouyinCookieAcquired();
-    applyActiveDouyinCookieRemark();
-    // 换号成功：新账号 auth-fail 计数保持独立；旧号若未达阈值保留计数
-    const remark =
-      getActiveDouyinCookieAccount()?.remark?.trim() ||
-      (getActiveDouyinCookie() ? "未命名账号" : "无 Cookie 降级");
-    this.emit("DebugLog", {
-      type: "common",
-      text: `douyin ${this.channelId} danma switch cookie account and host: ${remark}, ${getActiveDouyinDanmaHost()}`,
-    });
-    startDanmaClient();
-    return true;
   };
 
   const handleDanmaReconnect = (attempts: number) => {
@@ -830,7 +937,11 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       text: `douyin ${this.channelId} danma has reconnect ${attempts}`,
     });
   };
-  const handleDanmaError = (client: DouYinDanmaClient, err: Error) => {
+  const handleDanmaError = (
+    client: DouYinDanmaClient,
+    err: Error,
+    generation: number,
+  ) => {
     this.emit("DebugLog", {
       type: "common",
       text: `douyin ${this.channelId} danma error: ${String(err)}`,
@@ -840,7 +951,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     }
     // 探针 A 挂点：鉴权失败累计；非鉴权不升级；不全局熔断
     applyProbeAOnDanmaAuthFailure(err);
-    void rotateDouyinCookieAndHostAfterDanmaFailure();
+    void rotateDouyinCookieAndHostAfterDanmaFailure(generation);
   };
   const handleDanmaInit = (url: string) => {
     this.emit("DebugLog", {
@@ -848,10 +959,11 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       text: `douyin ${this.channelId} danma init ${url}`,
     });
   };
-  const handleDanmaOpen = (client: DouYinDanmaClient) => {
-    if (client !== activeDanmaClient) {
+  const handleDanmaOpen = (client: DouYinDanmaClient, generation: number) => {
+    if (client !== activeDanmaClient || !danmaRecoveryGate.isCurrentGeneration(generation)) {
       return;
     }
+    resetDouyinDanmaRecoveryAttempts(attemptedDouyinDanmaRecoveryKeys);
     // 成功路径：重置当前账号连续鉴权失败计数
     resetAuthFailForAccount(getActiveDouyinCookieAccount()?.id);
     this.appendTimeline({ text: `弹幕连接已建立` });
@@ -860,7 +972,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       text: `douyin ${this.channelId} danma open`,
     });
   };
-  const handleDanmaClose = (client: DouYinDanmaClient) => {
+  const handleDanmaClose = (client: DouYinDanmaClient, generation: number) => {
     this.emit("DebugLog", {
       type: "common",
       text: `douyin danma close`,
@@ -869,7 +981,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       return;
     }
     // close 无可靠鉴权分类时不 mark；仅换号恢复
-    rotateDouyinCookieAndHostAfterDanmaFailure();
+    void rotateDouyinCookieAndHostAfterDanmaFailure(generation);
   };
 
   // client.on("open", () => {
@@ -886,7 +998,10 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   // });
 
   if (!this.disableProvideCommentsWhenRecording) {
+    await prepareDouyinCookieForDanma();
     startDanmaClient();
+  } else {
+    clearActiveDouyinCookieLabel();
   }
 
   const downloaderArgs = downloader.getArguments();
@@ -906,6 +1021,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       }
     }
     releaseAcquiredDouyinCookie();
+    clearActiveDouyinCookieLabel();
     throw error;
   }
 
@@ -952,6 +1068,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
         text: `stop record error: ${String(err)}`,
       });
     }
+    clearActiveDouyinCookieLabel();
     this.usedStream = undefined;
     this.usedSource = undefined;
     this.emit("RecordStop", { recordHandle: this.recordHandle, reason });

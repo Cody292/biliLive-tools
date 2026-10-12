@@ -4,11 +4,7 @@ import { get } from "lodash-es";
 import type { AppConfig } from "../config.js";
 import { getCookie } from "../task/bili.js";
 import { readDouyuUser } from "./douyu.js";
-import {
-  deriveSelectableDouyuCookieAccounts,
-  pickWeightedAccount,
-  pickWeightedDouyinAccount,
-} from "./accountPick.js";
+import { resolveDouyuCookieInjection } from "./accountPick.js";
 
 // 定义独立配置类
 export default class RecorderConfig {
@@ -26,7 +22,12 @@ export default class RecorderConfig {
     | (Recorder & {
         auth?: string;
         formatPriorities?: Array<"hls" | "flv">;
-        douyuAuthCandidates?: Array<{ uid: number; cookie: string }>;
+        douyuAuthCandidates?: Array<{
+          uid: number;
+          cookie: string;
+          weight?: number;
+          label?: string;
+        }>;
       })
     | null {
     const settings = this.appConfig.get("recorders");
@@ -185,8 +186,9 @@ export default class RecorderConfig {
     // 授权处理
     let uid: number | string | undefined;
     let auth: string | undefined;
-    let currentDouyinCookieRemark: string | undefined;
-    let douyuAuthCandidates: Array<{ uid: number; cookie: string }> | undefined;
+    let douyuAuthCandidates:
+      | Array<{ uid: number; cookie: string; weight?: number; label?: string }>
+      | undefined;
     if (setting.providerId === "Bilibili") {
       uid = getValue("uid");
       if (uid) {
@@ -205,41 +207,15 @@ export default class RecorderConfig {
       const cookieMode = getValue("douyuCookieMode") ?? "off";
       const accounts = getValue("douyuCookieAccounts") ?? [];
       uid = getValue("uid");
-      if (cookieMode === "always") {
-        const selectable = deriveSelectableDouyuCookieAccounts(accounts, readDouyuUser);
-        const selected = pickWeightedAccount(selectable);
-        auth = selected?.cookie;
-        douyuAuthCandidates =
-          selectable.length > 0
-            ? selectable.map(({ uid, cookie }) => ({ uid, cookie }))
-            : undefined;
-      } else {
-        if (uid) {
-          try {
-            auth = readDouyuUser(Number(uid))?.loginCookies?.main;
-          } catch (error) {
-            console.error(error);
-          }
-        }
-        douyuAuthCandidates = undefined;
-      }
+      const injection = resolveDouyuCookieInjection({
+        mode: cookieMode,
+        accounts,
+        readUser: readDouyuUser,
+      });
+      auth = undefined;
+      douyuAuthCandidates = injection.candidates;
     } else if (setting.providerId === "DouYin") {
-      const cookieMode = getValue("douyinCookieMode") ?? "always";
-      const accounts = (getValue("douyinCookieAccounts") ?? []) as Array<{
-        remark?: string;
-        cookie?: string;
-        enabled?: boolean;
-        weight?: number;
-      }>;
-      const selectedAccount = pickWeightedDouyinAccount(accounts);
-      if (cookieMode === "off") {
-        auth = undefined;
-      } else if (selectedAccount?.cookie) {
-        auth = selectedAccount.cookie;
-        currentDouyinCookieRemark = selectedAccount.remark?.trim() || undefined;
-      } else {
-        auth = undefined;
-      }
+      auth = undefined;
       uid = setting?.uid;
     } else if (setting.providerId === "XHS") {
       auth = getValue("cookie");
@@ -291,7 +267,12 @@ export default class RecorderConfig {
     const result: Recorder & {
       auth?: string;
       formatPriorities?: Array<"hls" | "flv">;
-      douyuAuthCandidates?: Array<{ uid: number; cookie: string }>;
+      douyuAuthCandidates?: Array<{
+        uid: number;
+        cookie: string;
+        weight?: number;
+        label?: string;
+      }>;
     } = {
       ...setting,
       quality: getValue("quality") ?? "highest",
@@ -339,12 +320,13 @@ export default class RecorderConfig {
       result.customHost = customHost;
     }
 
-    const extra = {
-      ...(setting.extra ?? {}),
-      ...(currentDouyinCookieRemark !== undefined ? { currentDouyinCookieRemark } : {}),
-    };
-    if (Object.keys(extra).length > 0) {
-      result.extra = extra;
+    if (setting.extra && Object.keys(setting.extra).length > 0) {
+      const restExtra = { ...setting.extra };
+      delete restExtra.currentCookieLabel;
+      delete (restExtra as { currentDouyinCookieRemark?: string }).currentDouyinCookieRemark;
+      if (Object.keys(restExtra).length > 0) {
+        result.extra = restExtra;
+      }
     }
 
     return result;

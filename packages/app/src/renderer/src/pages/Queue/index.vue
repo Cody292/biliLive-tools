@@ -1,13 +1,20 @@
 <template>
   <div class="container">
-    <div style="display: flex; align-items: center">
+    <div class="header-tools">
       <n-select
         v-model:value="store.params.type"
         :options="typeOptions"
-        style="width: 140px; margin-right: 10px"
+        class="type-select"
         size="small"
       />
-      <n-checkbox-group v-model:value="selectedStatus">
+      <n-input
+        v-model:value="searchKeyword"
+        class="search-input"
+        placeholder="搜索任务名称"
+        clearable
+        size="small"
+      />
+      <n-checkbox-group v-model:value="selectedStatus" class="status-checkboxes">
         <n-checkbox value="pending">未开始</n-checkbox>
         <n-checkbox value="running">运行中</n-checkbox>
         <n-checkbox value="paused">已暂停</n-checkbox>
@@ -16,7 +23,7 @@
         <n-checkbox value="canceled">已取消</n-checkbox>
       </n-checkbox-group>
 
-      <div style="margin-left: auto; display: flex; gap: 10px">
+      <div class="header-actions">
         <n-button v-if="queue.length !== 0" size="small" type="primary" @click="handlePauseTasks"
           >暂停全部</n-button
         >
@@ -60,6 +67,8 @@ import type { Task } from "@renderer/types";
 const notice = useNotification();
 const store = useQueueStore();
 
+const searchKeyword = ref("");
+
 const queue = computed(() => store.queue);
 
 const groupByPid = (data: Task[]) => {
@@ -84,7 +93,27 @@ const groupByPid = (data: Task[]) => {
 const displayQueue = computed(() => {
   const filterData = queue.value.filter((item) => selectedStatus.value.includes(item.status));
   const data = groupByPid(filterData);
-  return data;
+  const keyword = (searchKeyword.value ?? "").trim().toLowerCase();
+  if (!keyword) {
+    return data;
+  }
+
+  const isMatch = (item: Task) => (item.name ?? "").trim().toLowerCase().includes(keyword);
+
+  return data.reduce<Task[]>((acc, item) => {
+    if (isMatch(item)) {
+      acc.push(item);
+    } else if (item.children && item.children.length > 0) {
+      const matchedChildren = item.children.filter(isMatch);
+      if (matchedChildren.length > 0) {
+        acc.push({
+          ...item,
+          children: matchedChildren,
+        });
+      }
+    }
+    return acc;
+  }, []);
 });
 
 const typeOptions = ref([
@@ -191,6 +220,28 @@ onActivated(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+
+  .header-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+
+    .type-select {
+      width: 140px;
+    }
+
+    .search-input {
+      width: 180px;
+    }
+
+    .header-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 10px;
+    }
+  }
+
   .item {
     border-bottom: 1px solid #eee;
     padding: 10px 5px;
@@ -198,6 +249,32 @@ onActivated(() => {
 
     .sub-item {
       margin-left: 15px;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .container {
+    .header-tools {
+      .type-select {
+        flex: 1;
+        min-width: 120px;
+      }
+
+      .search-input {
+        flex: 1;
+        min-width: 140px;
+      }
+
+      .status-checkboxes {
+        width: 100%;
+      }
+
+      .header-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+      }
     }
   }
 }

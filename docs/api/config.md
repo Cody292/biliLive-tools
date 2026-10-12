@@ -179,7 +179,7 @@
         threshold: 10, // 磁盘剩余空间阈值 (GB)
       },
       sync: [], // 文件同步完成通知
-      douyuAccountExpiry: false, // 斗鱼账号预计过期提醒：创建后 60 天过期，剩余不足 5 天时每日检查
+      douyuAccountExpiry: false, // 斗鱼账号预计过期提醒：按最近成功授权更新时间起 60 天，缺失时回退创建时间；剩余不足 5 天时每日检查
     },
     setting: {
       type: undefined, // 通知类型: server|mail|tg|ntfy|allInOne|customHttp

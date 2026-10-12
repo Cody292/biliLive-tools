@@ -312,7 +312,7 @@
     </n-form-item>
     <n-form-item>
       <template #label>
-        <Tip tip="预计剩余不足 5 天时通知" text="斗鱼账号过期"></Tip>
+        <Tip tip="按最近授权更新时间起算 60 天，剩余不足 5 天时通知" text="斗鱼账号过期"></Tip>
       </template>
       <n-switch v-model:value="config.notification.task.douyuAccountExpiry" />
       <n-select

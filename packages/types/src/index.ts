@@ -123,6 +123,8 @@ export interface DouyinCookieAccount {
   healthCheckedAt?: number;
   /** 健康判定原因（可展示/日志用，禁止含 cookie） */
   healthReason?: string;
+  /** 头像 URL；扫码身份解析写入，缺省表示未取到 */
+  avatar?: string;
 }
 
 // 通用预设
@@ -579,7 +581,8 @@ export interface Recorder {
     /** 头像 */
     avatar?: string;
     lastRecordTime?: number | null;
-    /** 当前使用的抖音 Cookie 账号备注（仅展示，不包含 Cookie 内容） */
+    /** 当前使用的 Cookie 账号展示标签（昵称/备注，绝不是 cookie 正文） */
+    currentCookieLabel?: string;
     currentDouyinCookieRemark?: string;
   };
   disableAutoCheck?: boolean;
@@ -771,7 +774,7 @@ export interface AppConfig {
       douyuDownload: NotificationTaskStatus[];
       mediaStatusCheck: NotificationTaskStatus[];
       sync: NotificationTaskStatus[];
-      /** 斗鱼账号预计过期前提醒（按登录创建时间起 60 天计算） */
+      /** 斗鱼账号预计过期前提醒（按最近成功授权更新时间 updatedAt 起 60 天，缺失时回退 createdAt） */
       douyuAccountExpiry: boolean;
       diskSpaceCheck: {
         values: Array<"bilirecorder" | "bililiveTools">;
@@ -1241,7 +1244,7 @@ export interface DouyuUser {
   loginCookies: DouyuLoginCookies;
   /** 当前登录记录的创建时间，重新登录时重置，Unix 毫秒时间戳 */
   createdAt: number;
-  /** 最近更新登录信息的时间，Unix 毫秒时间戳 */
+  /** 最近成功授权更新时间，Unix 毫秒时间戳；剩余 60 天从此时间起算 */
   updatedAt: number;
 }
 

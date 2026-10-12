@@ -84,7 +84,7 @@ export interface RecorderCreateOpts<E extends AnyObject = UnknownObject> {
   douyinCookieAccounts?: DouyinCookieAccount[];
   douyuCookieMode?: DouyuCookieMode;
   douyuCookieAccounts?: DouyuCookieAccount[];
-  douyuAuthCandidates?: { uid: number; cookie: string }[];
+  douyuAuthCandidates?: { uid: number; cookie: string; weight?: number; label?: string }[];
   /** B站是否使用m3u8代理 */
   useM3U8Proxy?: boolean;
   /**B站m3u8代理url */

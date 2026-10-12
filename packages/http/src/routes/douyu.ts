@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import {
   deleteDouyuUser,
   DouyuQrcodeLogin,
+  ensureDouyuAccountInPool,
   isDouyuUserPayload,
   readDouyuUser,
   readDouyuUserList,
@@ -49,6 +50,7 @@ router.get("/login/poll", async (ctx) => {
   const result = await session.poll();
   if (result.status === "completed") {
     writeDouyuUser(result.user);
+    ensureDouyuAccountInPool(result.user.uid);
     sessions.delete(id);
     ctx.body = { status: "completed" };
     return;

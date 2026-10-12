@@ -365,24 +365,8 @@
           <n-form-item>
             <template #label>
               <Tip
-                text="账号"
-                tip="未选择账号时将以未登录状态请求斗鱼接口，请先在用户页登录斗鱼账号"
-              ></Tip>
-            </template>
-            <n-select
-              v-model:value="config.recorder.douyu.uid"
-              :options="douyuUserList"
-              label-field="name"
-              value-field="uid"
-              clearable
-              placeholder="请先在用户页登录斗鱼账号"
-            />
-          </n-form-item>
-          <n-form-item>
-            <template #label>
-              <Tip
                 text="Cookie模式"
-                tip="关闭：沿用上方账号；启用：从账号池加权选号取流，失败切换下一启用账号。池为空则不注入 Cookie。"
+                tip="关闭：不注入 Cookie。启用：从账号池加权选号，失败切下一个启用账号，池空不注入。"
               ></Tip>
             </template>
             <n-select

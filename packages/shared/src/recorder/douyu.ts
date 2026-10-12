@@ -5,7 +5,7 @@ import { send as sendNotify } from "../notify.js";
 import { decrypt, encrypt } from "../utils/index.js";
 import log from "../utils/log.js";
 
-import type { DouyuLoginCookies, DouyuUser } from "@biliLive-tools/types";
+import type { DouyuCookieAccount, DouyuLoginCookies, DouyuUser } from "@biliLive-tools/types";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.188";
@@ -321,6 +321,29 @@ export const writeDouyuUser = (
   appConfig.set("douyuUser", users);
 };
 
+export const ensureDouyuAccountInPool = (uid: number): boolean => {
+  if (!Number.isSafeInteger(uid) || uid <= 0) return false;
+  const recorder = appConfig.get("recorder");
+  if (!recorder?.douyu) return false;
+
+  const accounts: DouyuCookieAccount[] = Array.isArray(recorder.douyu.accounts)
+    ? [...recorder.douyu.accounts]
+    : [];
+  if (accounts.some((account) => account.uid === uid)) {
+    return false;
+  }
+
+  accounts.push({ uid, enabled: true, weight: null });
+  appConfig.set("recorder", {
+    ...recorder,
+    douyu: {
+      ...recorder.douyu,
+      accounts,
+    },
+  });
+  return true;
+};
+
 export const readDouyuUser = (uid: number): DouyuUser | undefined => {
   const value = (appConfig.get("douyuUser") || {})[uid];
   if (!value) return undefined;
@@ -393,7 +416,9 @@ const refreshDouyuUserInternal = async (uid: number) => {
   const passport = parseCookie(user.loginCookies.passport);
   const main = parseCookie(user.loginCookies.main);
   const did = passport.dy_did || main.dy_did;
-  if (!did || !passport.LTP0) throw new Error("斗鱼刷新缺少 dy_did 或 LTP0");
+  if (!did || !passport.LTP0) {
+    throw new Error("斗鱼静默刷新缺少 dy_did 或 LTP0，请重新扫码登录");
+  }
   const timestamp = String(Date.now());
   const url = new URL("https://passport.douyu.com/lapi/passport/iframe/safeAuth");
   url.search = new URLSearchParams({
@@ -434,34 +459,96 @@ const refreshDouyuUserInternal = async (uid: number) => {
   appConfig.set("douyuUser", users);
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DOUYU_PROACTIVE_REFRESH_MS = 4 * DAY_MS;
+const DOUYU_EXPIRY_MS = 60 * DAY_MS;
+const DOUYU_EXPIRY_NOTICE_MS = 5 * DAY_MS;
+
+/** 60 天有效期从最近成功授权更新时间起算；历史数据缺失 updatedAt 时回退 createdAt。 */
+const resolveDouyuAuthAnchorAt = (user: {
+  createdAt?: number;
+  updatedAt?: number;
+}): number | undefined => {
+  if (typeof user.updatedAt === "number" && Number.isFinite(user.updatedAt) && user.updatedAt > 0) {
+    return user.updatedAt;
+  }
+  if (typeof user.createdAt === "number" && Number.isFinite(user.createdAt) && user.createdAt > 0) {
+    return user.createdAt;
+  }
+  return undefined;
+};
+
+const isDouyuRescanRequired = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.includes("请重新扫码登录") ||
+    (error.message.includes("dy_did") && error.message.includes("LTP0"))
+  );
+};
+
+const warnDouyuAccount = (uid: number | string, message: string) => {
+  log.warn(`斗鱼账号 ${uid} ${message}`);
+};
+
+/** 先校验有效性：无效则静默刷新；有效且超过 4 天未更新则主动刷新。网络异常不视为失效。 */
 export const checkDouyuAccounts = async () => {
   const now = Date.now();
-  for (const uid of Object.keys(appConfig.get("douyuUser") || {})) {
+  for (const uidKey of Object.keys(appConfig.get("douyuUser") || {})) {
+    const uid = Number(uidKey);
+    const user = readDouyuUser(uid);
+    if (!user) continue;
+
     try {
-      const user = readDouyuUser(Number(uid));
-      if (user && now - (user.updatedAt ?? 0) > 4 * 24 * 60 * 60 * 1000) {
-        await refreshDouyuUser(user.uid);
+      let valid: boolean;
+      try {
+        valid = await validateDouyuUser(user.uid);
+      } catch (_error) {
+        warnDouyuAccount(uid, "有效性检查请求异常，将在下次检查时重试");
+        continue;
       }
-    } catch {
-      // 不输出响应、请求头或 Cookie。
-      log.warn(`斗鱼账号 ${uid} Cookie 刷新失败，将在下次检查时重试`);
+
+      const anchorAt = resolveDouyuAuthAnchorAt(user);
+      const stale =
+        anchorAt === undefined ||
+        anchorAt > now ||
+        now - anchorAt > DOUYU_PROACTIVE_REFRESH_MS;
+      if (valid && !stale) continue;
+
+      await refreshDouyuUser(user.uid);
+    } catch (error) {
+      if (isDouyuRescanRequired(error)) {
+        try {
+          await sendNotify(
+            "斗鱼账号请重新扫码登录",
+            `斗鱼账号 ${user.name || user.uid}（UID：${user.uid}）请重新扫码登录。`,
+            {
+              type: "douyuAccountExpiry",
+              context: { uid: user.uid, name: user.name },
+            },
+          );
+        } catch (_notifyError) {
+          warnDouyuAccount(uid, "重扫通知发送失败，将在下次检查时重试");
+        }
+        warnDouyuAccount(uid, "Cookie 刷新失败，请重新扫码登录，将在下次检查时重试");
+      } else {
+        warnDouyuAccount(uid, "Cookie 刷新失败，将在下次检查时重试");
+      }
     }
   }
 };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const DOUYU_EXPIRY_MS = 60 * DAY_MS;
-const DOUYU_EXPIRY_NOTICE_MS = 5 * DAY_MS;
 
 /** 每日检查预计过期的斗鱼账号；单个账号失败不影响其他账号。 */
 export const checkDouyuAccountExpiry = async () => {
   if (!appConfig.get("notification")?.task?.douyuAccountExpiry) return;
   const now = Date.now();
-  for (const uid of Object.keys(appConfig.get("douyuUser") || {})) {
+  for (const uidKey of Object.keys(appConfig.get("douyuUser") || {})) {
+    const uid = Number(uidKey);
     try {
-      const user = readDouyuUser(Number(uid));
-      if (!user || !Number.isFinite(user.createdAt) || user.createdAt <= 0) continue;
-      const expiresAt = user.createdAt + DOUYU_EXPIRY_MS;
+      const user = readDouyuUser(uid);
+      if (!user) continue;
+      const anchorAt = resolveDouyuAuthAnchorAt(user);
+      if (anchorAt === undefined) continue;
+      const expiresAt = anchorAt + DOUYU_EXPIRY_MS;
       const remaining = expiresAt - now;
       if (remaining >= DOUYU_EXPIRY_NOTICE_MS) continue;
       const status =
@@ -471,8 +558,8 @@ export const checkDouyuAccountExpiry = async () => {
         `斗鱼账号 ${user.name || user.uid}（UID：${user.uid}）${status}，请重新扫码登录。`,
         { type: "douyuAccountExpiry", context: { uid: user.uid, name: user.name, expiresAt } },
       );
-    } catch {
-      log.warn(`斗鱼账号 ${uid} 过期通知失败，将在下次检查时重试`);
+    } catch (_error) {
+      warnDouyuAccount(uid, "过期通知失败，将在下次检查时重试");
     }
   }
 };
@@ -481,12 +568,12 @@ export const checkDouyuAccountExpiry = async () => {
 export const checkDouyuAccountLoop = async () => {
   try {
     await checkDouyuAccounts();
-  } catch {
+  } catch (_error) {
     log.warn("斗鱼账号检查失败，将在下次检查时重试");
   } finally {
     try {
       await checkDouyuAccountExpiry();
-    } catch {
+    } catch (_error) {
       log.warn("斗鱼账号过期检查失败，将在下次检查时重试");
     }
     setTimeout(checkDouyuAccountLoop, 24 * 60 * 60 * 1000);
