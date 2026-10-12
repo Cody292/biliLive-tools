@@ -27,8 +27,10 @@ git规范.md
 
 # Local test artifacts not intended for this publish
 # 目录级：避免逐个追加；已跟踪文件需另 git rm --cached
+packages/DouYinRecorder/test/
 packages/DouYinRecorder/tests/
 packages/shared/test/
+packages/shared/*.test.ts
 packages/http/test/
 packages/app/src/**/__tests__/
 packages/http/src/**/*.test.ts
@@ -42,6 +44,7 @@ packages/DouYuRecorder/src/**/*.test.ts
 packages/DouYuRecorder/vitest.config.ts
 
 # Local experiment / planning / scratch assets
+.temp-research/
 findings.md
 task_plan.md
 progress.md
