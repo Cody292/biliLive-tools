@@ -157,6 +157,8 @@ export type CommonRoomConfig = {
   danmuPreset?: string | null;
   autoPartMerge: boolean;
   partMergeMinute?: number;
+  /** 录制结束后将同场次碎片合并为本地独立成片，默认关闭，不删除源片 */
+  autoFragmentMerge: boolean;
   uid?: number;
   /** 生成高能进度条 */
   hotProgress: boolean;

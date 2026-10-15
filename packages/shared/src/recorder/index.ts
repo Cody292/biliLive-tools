@@ -3,7 +3,10 @@ import path from "node:path";
 import axios from "axios";
 import { cloneDeep, omit } from "lodash-es";
 
-import { provider as providerForDouYu } from "@bililive-tools/douyu-recorder";
+import {
+  provider as providerForDouYu,
+  setDouyuStreamCookieHooks,
+} from "@bililive-tools/douyu-recorder";
 import { provider as providerForHuYa } from "@bililive-tools/huya-recorder";
 import { provider as providerForBiliBili } from "@bililive-tools/bilibili-recorder";
 import { provider as providerForDouYin } from "@bililive-tools/douyin-recorder";
@@ -29,6 +32,19 @@ import {
   sendExternalEventRequest,
 } from "../utils/index.js";
 import RecorderConfig from "./config.js";
+import { readDouyuUser, refreshDouyuUser } from "./douyu.js";
+import {
+  beginFragmentFlight,
+  buildFragmentSourceWebhookEvents,
+  buildFragmentWebhookEvents,
+  collectCompletedFragment,
+  finalizeFragmentSession,
+  isAutoFragmentMergeEnabled,
+  isFragmentDanmuEnabled,
+  rememberFragmentOpen,
+  shouldKeepFragmentSource,
+  type FragmentWebhookEvent,
+} from "./fragmentSession.js";
 import { sendBySystem, send } from "../notify.js";
 import { danmaReport, parseDanmu } from "../danmu/index.js";
 
@@ -194,6 +210,54 @@ async function sendEndLiveNotification(
 
   // 更新最后通知时间
   endLiveNotificationCache.set(cacheKey, now);
+}
+
+async function postCustomWebhook(
+  port: number,
+  payload: FragmentWebhookEvent,
+  recorderId: string,
+): Promise<void> {
+  const webhookUrl = `http://127.0.0.1:${port}/webhook/custom`;
+  logger.debug("Manager fragment webhook start", {
+    recorderId,
+    webhookUrl,
+    event: payload.event,
+    filePath: payload.filePath,
+    roomId: payload.roomId,
+  });
+  try {
+    await axios.post(webhookUrl, payload, {
+      proxy: false,
+      timeout: 10000,
+    });
+    logger.debug("Manager fragment webhook success", {
+      recorderId,
+      webhookUrl,
+      event: payload.event,
+      filePath: payload.filePath,
+    });
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      logger.error("Manager fragment webhook error", {
+        recorderId,
+        webhookUrl,
+        event: payload.event,
+        filePath: payload.filePath,
+        code: error.code,
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+      return;
+    }
+    logger.error("Manager fragment webhook error", {
+      recorderId,
+      webhookUrl,
+      event: payload.event,
+      filePath: payload.filePath,
+      error,
+    });
+  }
 }
 
 async function convert2Mp4(videoFile: string): Promise<string> {
@@ -376,6 +440,11 @@ export async function createRecorderManager(appConfig: AppConfig) {
   const managerOptions = await buildManagerOptions(config);
   const manager = createManager(managerOptions);
 
+  setDouyuStreamCookieHooks({
+    refresh: (uid) => refreshDouyuUser(uid),
+    reloadCookie: (uid) => readDouyuUser(uid)?.loginCookies.main,
+  });
+
   manager.on("RecorderDebugLog", ({ recorder, ...log }) => {
     if (log.type !== "ffmpeg") {
       logger.info(`recorder: ${log.text}`);
@@ -409,11 +478,86 @@ export async function createRecorderManager(appConfig: AppConfig) {
       time: new Date(timestamp).toISOString(),
     });
   });
-  manager.on("RecordStop", ({ recorder }) => {
+  manager.on("RecordStop", ({ recorder, recordHandle }) => {
     logger.info("Manager stop", recorder);
     void sendRecorderExternalEvent("record_end", {
       ...getRecorderExternalBase(recorder),
     });
+    const stoppedConfig = appConfig.getAll();
+    void finalizeFragmentSession({
+      recordHandleId: recordHandle.id,
+      channelId: recorder.channelId,
+      webhook: stoppedConfig.webhook,
+      ffmpegPath: getBinPath().ffmpegPath,
+      ffprobePath: getBinPath().ffprobePath,
+    })
+      .then(async (result) => {
+        const convertEnabled = Boolean(recorderConfig.get(recorder.id)?.convert2Mp4);
+        let videoPath: string | undefined;
+        if (result) {
+          if (convertEnabled && result.output === undefined && result.sources) {
+            for (const source of result.sources) {
+              if (path.extname(source).toLowerCase() === ".mp4") {
+                continue;
+              }
+              try {
+                await convert2Mp4(source);
+              } catch (error) {
+                logger.error("convert2Mp4 error", error);
+              }
+            }
+          }
+          switch (result.kind) {
+            case "merged":
+            case "remuxed":
+            case "noop": {
+              const output = result.output;
+              if (
+                output &&
+                convertEnabled &&
+                (result.kind !== "noop" || result.reason === "single-keep") &&
+                path.extname(output).toLowerCase() !== ".mp4"
+              ) {
+                try {
+                  videoPath = await convert2Mp4(output);
+                } catch (error) {
+                  logger.error("convert2Mp4 error", error);
+                }
+              }
+              break;
+            }
+            case "rejected":
+              break;
+            default: {
+              const unreachable: never = result;
+              throw new Error(`unhandled fragment result: ${JSON.stringify(unreachable)}`);
+            }
+          }
+        }
+        const endTime = new Date().toISOString();
+        const events = buildFragmentWebhookEvents({
+          result,
+          endTime,
+          ...(videoPath ? { videoPath } : {}),
+        });
+        if (events) {
+          await postCustomWebhook(stoppedConfig.port, events.open, recorder.id);
+          await postCustomWebhook(stoppedConfig.port, events.close, recorder.id);
+          return;
+        }
+        const sourceEvents = buildFragmentSourceWebhookEvents({ result, endTime });
+        if (!sourceEvents) return;
+        for (const pair of sourceEvents) {
+          await postCustomWebhook(stoppedConfig.port, pair.open, recorder.id);
+          await postCustomWebhook(stoppedConfig.port, pair.close, recorder.id);
+        }
+      })
+      .catch((error) => {
+        logger.error("autoFragmentMerge webhook emit failed", {
+          recordHandleId: recordHandle.id,
+          error,
+        });
+      });
     // 录制结束通知，自动监听&开启推送时才会发送
     const config = recorderConfig.get(recorder.id);
     if (!config) return;
@@ -455,8 +599,8 @@ export async function createRecorderManager(appConfig: AppConfig) {
   // manager.on("RecordSegment", (debug) => {
   //   console.error("Manager segment", debug);
   // });
-  manager.on("videoFileCreated", async ({ recorder, filename, rawFilename }) => {
-    logger.info("Manager videoFileCreated", { recorder, filename, rawFilename });
+  manager.on("videoFileCreated", async ({ recorder, filename, rawFilename, recordHandleId }) => {
+    logger.info("Manager videoFileCreated", { recorder, filename, rawFilename, recordHandleId });
     const videoStartTime = new Date();
     const liveStartTime = recorder.liveInfo?.liveStartTime;
 
@@ -465,10 +609,37 @@ export async function createRecorderManager(appConfig: AppConfig) {
       return;
     }
     const data = recorderConfig.get(recorder.id);
+    const createdConfig = appConfig.getAll();
+    const autoFragmentMergeEnabled = isAutoFragmentMergeEnabled(
+      createdConfig.webhook,
+      recorder.channelId,
+    );
+    const deferWebhook = Boolean(recordHandleId && autoFragmentMergeEnabled);
+    if (autoFragmentMergeEnabled && !recordHandleId) {
+      logger.warn("autoFragmentMerge skipped fragment webhook without record handle", {
+        recorderId: recorder.id,
+        filename,
+      });
+    }
+    if (deferWebhook) {
+      rememberFragmentOpen({
+        recordHandleId,
+        roomId: recorder.channelId,
+        title: recorder.liveInfo.title,
+        username: recorder.liveInfo.owner,
+        platform: recorder.providerId.toLowerCase(),
+        time: videoStartTime.toISOString(),
+        sendToWebhook: Boolean(data?.sendToWebhook),
+        requiresDanmuXml:
+          isFragmentDanmuEnabled(createdConfig.webhook, recorder.channelId) &&
+          data?.disableProvideCommentsWhenRecording === false,
+      });
+    }
 
     data?.sendToWebhook &&
+      !autoFragmentMergeEnabled &&
       axios.post(
-        `http://127.0.0.1:${config.port}/webhook/custom`,
+        `http://127.0.0.1:${createdConfig.port}/webhook/custom`,
         {
           event: "FileOpening",
           filePath: filename,
@@ -501,16 +672,37 @@ export async function createRecorderManager(appConfig: AppConfig) {
       platform: recorder.providerId,
     });
   });
-  manager.on("videoFileCompleted", async ({ recorder, filename, stats }) => {
-    logger.info("Manager videoFileCompleted", { recorder, filename, stats });
+  manager.on("videoFileCompleted", async ({ recorder, filename, stats, recordHandleId }) => {
+    logger.info("Manager videoFileCompleted", { recorder, filename, stats, recordHandleId });
 
-    const endTime = new Date();
-    const data = recorderConfig.get(recorder.id);
-    const title = recorder?.liveInfo?.title;
-    const username = recorder?.liveInfo?.owner;
-    const channelId = recorder?.channelId;
-    const liveId = recorder?.liveInfo?.liveId;
     const config = appConfig.getAll();
+    const autoFragmentMergeEnabled = isAutoFragmentMergeEnabled(
+      config.webhook,
+      recorder?.channelId,
+    );
+    collectCompletedFragment({
+      recordHandleId,
+      filename,
+      channelId: recorder?.channelId,
+      webhook: config.webhook,
+    });
+    const endFlight = beginFragmentFlight(
+      autoFragmentMergeEnabled ? recordHandleId : undefined,
+    );
+    if (autoFragmentMergeEnabled && !recordHandleId) {
+      logger.warn("autoFragmentMerge skipped fragment webhook without record handle", {
+        recorderId: recorder.id,
+        filename,
+      });
+    }
+
+    try {
+      const endTime = new Date();
+      const data = recorderConfig.get(recorder.id);
+      const title = recorder?.liveInfo?.title;
+      const username = recorder?.liveInfo?.owner;
+      const channelId = recorder?.channelId;
+      const liveId = recorder?.liveInfo?.liveId;
 
     try {
       const xmlFile = replaceExtName(filename, ".xml");
@@ -572,11 +764,15 @@ export async function createRecorderManager(appConfig: AppConfig) {
         );
       }
 
-      if (data?.convert2Mp4) {
+      if (data?.convert2Mp4 && !(autoFragmentMergeEnabled && recordHandleId)) {
         try {
           await convert2Mp4(filename);
-          await fs.unlink(filename);
-          logger.info("转换 mp4 成功，已删除原文件", { filename });
+          if (shouldKeepFragmentSource(config.webhook, recorder?.channelId)) {
+            logger.info("转换 mp4 成功，已保留原文件", { filename });
+          } else {
+            await fs.unlink(filename);
+            logger.info("转换 mp4 成功，已删除原文件", { filename });
+          }
         } catch (error) {
           logger.error("convert2Mp4 error", error);
         }
@@ -590,58 +786,24 @@ export async function createRecorderManager(appConfig: AppConfig) {
         platform: recorder.providerId,
       });
 
-      if (data?.sendToWebhook) {
-        const webhookUrl = `http://127.0.0.1:${config.port}/webhook/custom`;
-        const payload = {
-          event: "FileClosed",
-          filePath: filename,
-          roomId: channelId,
-          time: endTime.toISOString(),
-          title: title,
-          username: username,
-          platform: recorder.providerId.toLowerCase(),
-          software: "biliLive-tools",
-        };
-
-        logger.debug("Manager videoFileCompleted webhook start", {
-          recorderId: recorder.id,
-          webhookUrl,
-          filePath: filename,
-          roomId: channelId,
-          hasTitle: Boolean(title),
-          hasUsername: Boolean(username),
-        });
-
-        try {
-          await axios.post(webhookUrl, payload, {
-            proxy: false,
-            timeout: 10000,
-          });
-          logger.debug("Manager videoFileCompleted webhook success", {
-            recorderId: recorder.id,
-            webhookUrl,
+      if (
+        data?.sendToWebhook &&
+        !autoFragmentMergeEnabled
+      ) {
+        await postCustomWebhook(
+          config.port,
+          {
+            event: "FileClosed",
             filePath: filename,
-          });
-        } catch (error) {
-          if (axios.isAxiosError(error)) {
-            logger.error("Manager videoFileCompleted webhook error", {
-              recorderId: recorder.id,
-              webhookUrl,
-              filePath: filename,
-              code: error.code,
-              message: error.message,
-              status: error.response?.status,
-              data: error.response?.data,
-            });
-          } else {
-            logger.error("Manager videoFileCompleted webhook error", {
-              recorderId: recorder.id,
-              webhookUrl,
-              filePath: filename,
-              error,
-            });
-          }
-        }
+            roomId: String(channelId ?? ""),
+            time: endTime.toISOString(),
+            title: title ?? "",
+            username: username ?? "",
+            platform: recorder.providerId.toLowerCase(),
+            software: "biliLive-tools",
+          },
+          recorder.id,
+        );
       }
     }
 
@@ -712,6 +874,9 @@ export async function createRecorderManager(appConfig: AppConfig) {
         platform: recorder.providerId,
         roomId: recorder.channelId,
       });
+    }
+    } finally {
+      endFlight();
     }
   });
 

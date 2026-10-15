@@ -184,8 +184,9 @@ export class WebhookHandler {
       }
       if (config.uid) {
         const shouldRemove =
-          config.afterUploadDeletAction === "delete" ||
-          config.afterUploadDeletAction === "deleteAfterCheck";
+          !config.autoFragmentMerge &&
+          (config.afterUploadDeletAction === "delete" ||
+            config.afterUploadDeletAction === "deleteAfterCheck");
 
         if (config.uploadNoDanmu) {
           this.fileRefManager.addRef(filePath, shouldRemove);
@@ -358,7 +359,9 @@ export class WebhookHandler {
           audioCodec: "copy",
         },
         {
-          removeVideo: config.removeSourceAferrConvert2Mp4 ?? true,
+          removeVideo: config.autoFragmentMerge
+            ? false
+            : (config.removeSourceAferrConvert2Mp4 ?? true),
         },
       );
 

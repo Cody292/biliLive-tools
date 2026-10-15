@@ -180,11 +180,13 @@ export interface RecorderManager<
       filename: string;
       cover?: string;
       rawFilename?: string;
+      recordHandleId?: string;
     };
     videoFileCompleted: {
       recorder: SerializedRecorder<E>;
       filename: string;
       stats?: XmlStreamStats;
+      recordHandleId?: string;
     };
     RecorderProgress: { recorder: SerializedRecorder<E>; progress: Progress };
     RecoderLiveStart: { recorder: Recorder<E> };
@@ -438,7 +440,20 @@ export function createRecorderManager<
       recorder.on("RecordSegment", (recordHandle) =>
         this.emit("RecordSegment", { recorder: recorder.toJSON(), recordHandle }),
       );
+      const getActiveRecordHandleId = (): string | undefined => {
+        const currentRecordHandleId = recorder.recordHandle?.id;
+        if (currentRecordHandleId) return currentRecordHandleId;
+
+        let activeRecordHandleId: string | undefined;
+        for (const [recordHandleId, attempt] of recordAttempts) {
+          if (attempt.recorderId === recorder.id) {
+            activeRecordHandleId = recordHandleId;
+          }
+        }
+        return activeRecordHandleId;
+      };
       recorder.on("videoFileCreated", ({ filename, cover, rawFilename }) => {
+        const recordHandleId = getActiveRecordHandleId();
         if (recorder.saveCover && recorder?.liveInfo?.cover) {
           const coverPath = replaceExtName(filename, ".jpg");
           downloadImage(cover ?? recorder?.liveInfo?.cover, coverPath);
@@ -447,14 +462,25 @@ export function createRecorderManager<
           startTime: Date.now(),
           text: `视频文件创建：${filename}`,
         });
-        this.emit("videoFileCreated", { recorder: recorder.toJSON(), filename, rawFilename });
+        this.emit("videoFileCreated", {
+          recorder: recorder.toJSON(),
+          filename,
+          rawFilename,
+          recordHandleId,
+        });
       });
       recorder.on("videoFileCompleted", ({ filename, stats }) => {
+        const recordHandleId = getActiveRecordHandleId();
         recorder.appendTimeline?.({
           startTime: Date.now(),
           text: `视频文件创建完成：${filename}`,
         });
-        this.emit("videoFileCompleted", { recorder: recorder.toJSON(), filename, stats });
+        this.emit("videoFileCompleted", {
+          recorder: recorder.toJSON(),
+          filename,
+          stats,
+          recordHandleId,
+        });
       });
       recorder.on("Message", (message) =>
         this.emit("Message", { recorder: recorder.toJSON(), message }),

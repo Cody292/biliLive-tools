@@ -510,21 +510,26 @@ export function generateMergedXmlContent(
   return `<?xml version="1.0" encoding="utf-8"?>\n${xmlContent}`;
 }
 
+export type XmlMergeSegment = {
+  readonly videoPath: string;
+  readonly danmakuPath: string;
+  readonly durationSec: number;
+};
+
 /**
- * 根据视频合并xml弹幕
+ * 用明确的片段时长做 XML 时间轴偏移，避免调用方再探视频。
  */
-export const mergeXml = async (
-  inputFiles: { videoPath: string; danmakuPath: string }[],
+export const mergeXmlWithDurations = async (
+  inputFiles: readonly XmlMergeSegment[],
   options: {
     output?: string;
     saveMeta?: boolean;
   } = {},
-) => {
+): Promise<string> => {
   if (inputFiles.length === 0) {
     throw new Error("输入文件不能为空");
   }
 
-  // 确定输出路径
   let outputPath: string;
   if (options.output) {
     outputPath = options.output;
@@ -534,24 +539,15 @@ export const mergeXml = async (
     outputPath = await getUnusedFileName(filePath);
   }
 
-  // 如果输出文件已存在，删除它
-  if (await pathExists(outputPath)) {
-    await trashItem(outputPath);
-  }
-
-  // 读取视频时长和累计时长
   let cumulativeDuration = 0;
   const videoData: VideoDataItem[] = [];
 
   for (const file of inputFiles) {
-    // 读取视频元数据获取时长
-    const meta = await readVideoMeta(file.videoPath);
-    const duration = Number(meta.format.duration || 0);
-    if (duration === 0 || isNaN(duration)) {
+    const duration = Number(file.durationSec);
+    if (duration <= 0 || isNaN(duration)) {
       throw new Error("视频无法读取到时间，无法进行处理");
     }
 
-    // 解析XML文件
     const { jObj, danmuku, sc, guard, gift } = await parseXmlFile(file.danmakuPath, true);
 
     videoData.push({
@@ -568,17 +564,13 @@ export const mergeXml = async (
     cumulativeDuration += duration;
   }
 
-  // 处理所有弹幕并合并
   const mergedDanmuku: DanmuItem[] = [];
   const mergedSc: CommonItem[] = [];
   const mergedGuard: CommonItem[] = [];
   const mergedGift: CommonItem[] = [];
-
-  // TODO: 测试录播姬的，可能存在问题，比如礼物某些解析
   const metadata = options.saveMeta ? videoData[0]?.meta : null;
 
   for (const data of videoData) {
-    // 处理各类型弹幕并添加到对应数组
     mergedDanmuku.push(
       ...processDanmuOffset(data.danmuku, data.videoDuration, data.startOffset, true),
     );
@@ -587,7 +579,6 @@ export const mergeXml = async (
     mergedGift.push(...processDanmuOffset(data.gift, data.videoDuration, data.startOffset));
   }
 
-  // 生成XML内容
   const xmlContent = generateMergedXmlContent(
     mergedDanmuku,
     mergedGift,
@@ -596,7 +587,6 @@ export const mergeXml = async (
     metadata,
   );
 
-  // 写入合并后的XML文件
   await fs.writeFile(outputPath, xmlContent);
 
   log.info("mergeXml", {
@@ -606,4 +596,45 @@ export const mergeXml = async (
   });
 
   return outputPath;
+};
+
+/**
+ * 根据视频合并xml弹幕
+ */
+export const mergeXml = async (
+  inputFiles: { videoPath: string; danmakuPath: string }[],
+  options: {
+    output?: string;
+    saveMeta?: boolean;
+  } = {},
+) => {
+  if (inputFiles.length === 0) {
+    throw new Error("输入文件不能为空");
+  }
+
+  let outputPath: string;
+  if (options.output) {
+    outputPath = options.output;
+  } else {
+    const { dir, name } = parse(inputFiles[0].danmakuPath);
+    const filePath = join(dir, `${name}-合并.xml`);
+    outputPath = await getUnusedFileName(filePath);
+  }
+
+  if (await pathExists(outputPath)) {
+    await trashItem(outputPath);
+  }
+
+  const segments: XmlMergeSegment[] = [];
+  for (const file of inputFiles) {
+    const meta = await readVideoMeta(file.videoPath);
+    const duration = Number(meta.format.duration || 0);
+    segments.push({
+      videoPath: file.videoPath,
+      danmakuPath: file.danmakuPath,
+      durationSec: duration,
+    });
+  }
+
+  return mergeXmlWithDurations(segments, { ...options, output: outputPath });
 };

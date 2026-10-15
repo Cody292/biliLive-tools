@@ -60,6 +60,7 @@ export const APP_DEFAULT_CONFIG: AppConfig = {
     danmuPreset: undefined,
     afterConvertAction: [],
     autoPartMerge: false,
+    autoFragmentMerge: false,
     partMergeMinute: 10,
     hotProgress: false,
     useLiveCover: false,
