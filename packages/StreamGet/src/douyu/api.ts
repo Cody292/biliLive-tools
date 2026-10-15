@@ -13,6 +13,7 @@ import type {
 } from "./types.js";
 import { getH5Play } from "./h5-play.js";
 import { getH5PlayV1 } from "./h5-play-v1.js";
+import { formatDouyuUnexpectedErrorCode } from "./errorCode.js";
 
 /**
  * 对斗鱼 getH5Play 接口的封装
@@ -38,7 +39,10 @@ export async function getLiveInfo(
     }
 
     if (json.error !== 0) {
-      throw new ParseError("Unexpected error code: " + json.error, "douyu");
+      throw new ParseError(
+        "Unexpected error code: " + formatDouyuUnexpectedErrorCode(json.error, json.msg),
+        "douyu",
+      );
     }
 
     let streamUrl = `${json.data.rtmp_url}/${json.data.rtmp_live}`;

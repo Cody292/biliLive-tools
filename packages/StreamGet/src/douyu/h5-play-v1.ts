@@ -3,6 +3,7 @@ import { ParseError, NetworkError } from "../errors.js";
 import { md5 } from "../utils.js";
 import cookie from "cookie";
 import type { GetH5PlayOptions, GetH5PlayResponse } from "./h5-play.js";
+import { formatDouyuUnexpectedErrorCode } from "./errorCode.js";
 
 const DEFAULT_DID = "10000000000000000000000000001501";
 const ENCRYPTION_CACHE_TTL = 5 * 60 * 1000;
@@ -66,14 +67,14 @@ async function getEncryption(http: HttpClient, did: string): Promise<EncryptionD
     }>(`https://www.douyu.com/wgapi/livenc/liveweb/websec/getEncryption?did=${did}`);
 
     if (response.error !== 0) {
-      throw new ParseError("Unexpected error code: " + response.error, "douyu");
+      throw new ParseError(
+        "Unexpected error code: " + formatDouyuUnexpectedErrorCode(response.error),
+        "douyu",
+      );
     }
 
     if (!response.data) {
-      throw new ParseError(
-        "Unexpected result with websec/getEncryption: " + JSON.stringify(response),
-        "douyu",
-      );
+      throw new ParseError("Unexpected result with websec/getEncryption: missing data", "douyu");
     }
 
     encryptionCache.set(did, {

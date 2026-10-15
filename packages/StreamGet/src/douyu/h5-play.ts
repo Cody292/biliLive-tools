@@ -4,6 +4,7 @@ import type { HttpClient } from "../http.js";
 import { ParseError, NetworkError } from "../errors.js";
 import { uuid, md5 } from "../utils.js";
 import type { GetH5PlaySuccessData } from "./types.js";
+import { formatDouyuUnexpectedErrorCode } from "./errorCode.js";
 
 type SignFunction = (channelId: string, did: string, time: number) => string;
 
@@ -52,12 +53,15 @@ async function getSignFn(
     }>("https://www.douyu.com/swf_api/homeH5Enc?rids=" + address);
 
     if (json.error !== 0) {
-      throw new ParseError("Unexpected error code: " + json.error, "douyu");
+      throw new ParseError(
+        "Unexpected error code: " + formatDouyuUnexpectedErrorCode(json.error),
+        "douyu",
+      );
     }
 
     const code = json.data && json.data["room" + address];
     if (!code) {
-      throw new ParseError("Unexpected result with homeH5Enc: " + JSON.stringify(json), "douyu");
+      throw new ParseError("Unexpected result with homeH5Enc: missing sign code", "douyu");
     }
 
     const CryptoJS = {
@@ -75,6 +79,9 @@ async function getSignFn(
     signCaches[address] = sign;
     return sign;
   } catch (error) {
+    if (error instanceof ParseError) {
+      throw error;
+    }
     throw new NetworkError(`获取签名函数失败: ${(error as Error).message}`, "douyu");
   }
 }

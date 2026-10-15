@@ -409,17 +409,6 @@
                   >
                     <template #prefix>权重</template>
                   </n-input-number>
-                  <n-switch
-                    v-model:value="account.enabled"
-                    :disabled="globalFieldsObj.douyuCookieAccounts"
-                  />
-                  <n-button
-                    type="error"
-                    ghost
-                    :disabled="globalFieldsObj.douyuCookieAccounts"
-                    @click="removeDouyuCookieAccount(index)"
-                    >删除</n-button
-                  >
                 </div>
               </div>
               <n-checkbox
@@ -1082,11 +1071,6 @@ const ensureDouyuCookieConfig = () => {
 const addDouyuCookieAccount = () => {
   ensureDouyuCookieConfig();
   config.value.douyuCookieAccounts?.push(createDouyuCookieAccount());
-};
-
-const removeDouyuCookieAccount = (index: number) => {
-  ensureDouyuCookieConfig();
-  config.value.douyuCookieAccounts?.splice(index, 1);
 };
 
 const confirmDialog = useConfirm();
