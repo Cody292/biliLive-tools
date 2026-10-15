@@ -41,7 +41,11 @@ packages/StreamGet/test/http.test.ts
 scripts/install-bin.test.js
 packages/DouYuRecorder/src/*.test.ts
 packages/DouYuRecorder/src/**/*.test.ts
+packages/DouYuRecorder/test/
+packages/DouYuRecorder/tsconfig.vitest.json
 packages/DouYuRecorder/vitest.config.ts
+packages/StreamGet/test/douyu/errorCode.test.ts
+packages/liveManager/test/manager.videoFileCompleted.test.ts
 
 # Local experiment / planning / scratch assets
 .temp-research/
