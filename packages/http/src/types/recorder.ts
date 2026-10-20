@@ -107,6 +107,7 @@ export type UpdateRecorderArgs = Pick<
   | "saveSCDanma"
   | "segment"
   | "sendToWebhook"
+  | "autoFragmentMerge"
   | "uid"
   | "saveCover"
   | "convert2Mp4"

@@ -4,6 +4,7 @@ import { v4 as uuid } from "uuid";
 import { container } from "../index.js";
 import { omit, pick, isEmpty, cloneDeep } from "lodash-es";
 import recordHistory from "@biliLive-tools/shared/recorder/recordHistory.js";
+import { assertSegmentMergeExclusive } from "@biliLive-tools/shared/recorder/segmentPolicy.js";
 import logger from "@biliLive-tools/shared/utils/log.js";
 import { defaultRecordConfig } from "@biliLive-tools/shared/enum.js";
 
@@ -41,6 +42,22 @@ function normalizeDouyuRecorderArgs<T extends { douyuCookieMode?: RecorderConfig
     ...args,
     douyuCookieMode,
   };
+}
+
+function getGlobalRecorderSegment(): unknown {
+  return container.resolve("appConfig").get("recorder")?.segment;
+}
+
+function assertSaveSegmentMergeExclusive(input: {
+  readonly segment: unknown;
+  readonly autoFragmentMerge: unknown;
+  readonly noGlobalFollowFields?: readonly string[];
+}): void {
+  const followGlobalSegment = !(input.noGlobalFollowFields ?? []).includes("segment");
+  assertSegmentMergeExclusive({
+    segment: followGlobalSegment ? getGlobalRecorderSegment() : input.segment,
+    autoFragmentMerge: input.autoFragmentMerge,
+  });
 }
 
 // RecorderAPI 的实际实现，这里负责实现对外暴露的接口，并假设 Args 都已经由上一层解析好了
@@ -188,6 +205,11 @@ async function addRecorder(
       ...args,
     }),
   );
+  assertSaveSegmentMergeExclusive({
+    segment: config.segment,
+    autoFragmentMerge: config.autoFragmentMerge,
+    noGlobalFollowFields: config.noGlobalFollowFields,
+  });
   // @ts-ignore
   const recorder = await recorderManager.addRecorder(config);
   if (recorder == null) throw new Error("不可重复添加");
@@ -199,6 +221,12 @@ async function updateRecorder(
 ): Promise<RecorderAPI["updateRecorder"]["Resp"]> {
   const recorderManager = container.resolve("recorderManager");
   const normalizedArgs = normalizeDouyuRecorderArgs(normalizeDouyinRecorderArgs(args));
+  const raw = recorderManager.config.getRaw(normalizedArgs.id);
+  assertSaveSegmentMergeExclusive({
+    segment: normalizedArgs.segment ?? raw?.segment,
+    autoFragmentMerge: normalizedArgs.autoFragmentMerge ?? raw?.autoFragmentMerge,
+    noGlobalFollowFields: normalizedArgs.noGlobalFollowFields ?? raw?.noGlobalFollowFields,
+  });
   // @ts-ignore
   const recorder = await recorderManager.updateRecorder(normalizedArgs);
   if (recorder == null) throw new Error("配置不存在");
