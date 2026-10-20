@@ -6,8 +6,6 @@ export interface RoomConfig {
   danmu: boolean;
   /* 是否合并到一个文件中 */
   mergePart: boolean;
-  /* 录制结束后将同场次碎片合并为本地独立成片 */
-  autoFragmentMerge: boolean;
   /* 最小文件大小 */
   minSize: number;
   /* 上传preset */
@@ -144,7 +142,6 @@ export class ConfigManager {
 
     const danmu = this.getRoomSetting("danmu", roomSetting) ?? false;
     const mergePart = this.getRoomSetting("autoPartMerge", roomSetting) ?? false;
-    const autoFragmentMerge = this.getRoomSetting("autoFragmentMerge", roomSetting) ?? false;
     const minSize = this.getRoomSetting("minSize", roomSetting) ?? 10;
     const uploadPresetId = this.getRoomSetting("uploadPresetId", roomSetting) || "default";
     const title = this.getRoomSetting("title", roomSetting) || "";
@@ -169,14 +166,11 @@ export class ConfigManager {
     const syncId = this.getRoomSetting("syncId", roomSetting);
     const afterConvertAction = this.getRoomSetting("afterConvertAction", roomSetting) ?? [];
 
-    const removeSourceAferrConvert2Mp4 =
-      !autoFragmentMerge && afterConvertAction.includes("removeAfterConvert2Mp4");
-    const afterConvertRemoveVideoRaw =
-      !autoFragmentMerge && afterConvertAction.includes("removeVideo");
+    const removeSourceAferrConvert2Mp4 = afterConvertAction.includes("removeAfterConvert2Mp4");
+    const afterConvertRemoveVideoRaw = afterConvertAction.includes("removeVideo");
     const afterConvertRemoveXmlRaw = afterConvertAction.includes("removeXml");
     const afterConvertRemoveFlvRaw = afterConvertAction.includes("removeAfterFlvRepair");
-    const removeSmallFile =
-      !autoFragmentMerge && afterConvertAction.includes("removeSmallFile");
+    const removeSmallFile = afterConvertAction.includes("removeSmallFile");
 
     const limitUploadTime = this.getRoomSetting("limitUploadTime", roomSetting) ?? false;
     const uploadHandleTime = this.getRoomSetting("uploadHandleTime", roomSetting) || [
@@ -214,7 +208,6 @@ export class ConfigManager {
     return {
       danmu,
       mergePart,
-      autoFragmentMerge,
       minSize,
       uploadPresetId,
       title,
