@@ -1,5 +1,3 @@
-import type { AppConfig as AppConfigType } from "@biliLive-tools/types";
-
 import { CommandTimeoutError, processFragments, type CommandRunner } from "./fragmentMerge.js";
 import {
   attachFragmentPairing,
@@ -13,7 +11,8 @@ import {
   getTombstone,
   isAutoFragmentMergeEnabled as resolveAutoFragmentMerge,
   pruneTombstones,
-  rememberTombstone,
+  rememberSessionTombstone,
+  resolveFragmentSessionKey,
   type FragmentSession,
 } from "./fragmentStore.js";
 
@@ -29,6 +28,7 @@ export {
   peekFragmentOpenMeta,
   rememberFragmentOpen,
   resetFragmentSessionsForTests,
+  resolveFragmentSessionKey,
   shouldKeepFragmentSource,
 } from "./fragmentStore.js";
 
@@ -75,23 +75,25 @@ async function drainFlights(session: FragmentSession): Promise<"drained" | "time
 }
 
 export function finalizeFragmentSession(input: {
+  readonly sessionId?: string;
   readonly recordHandleId?: string;
-  readonly channelId: string | number | undefined;
-  readonly webhook: AppConfigType["webhook"] | undefined;
+  readonly autoFragmentMerge?: boolean;
   readonly ffmpegPath: string;
   readonly ffprobePath: string;
   readonly run?: CommandRunner;
   readonly openMeta?: FragmentOpenMeta;
 }): Promise<FragmentFinalizeResult | undefined> {
-  const recordHandleId = input.recordHandleId;
-  if (!recordHandleId) return Promise.resolve(undefined);
+  const sessionKey = resolveFragmentSessionKey(input);
+  if (!sessionKey) return Promise.resolve(undefined);
   const now = Date.now();
   pruneTombstones(now);
-  const existingTombstone = getTombstone(recordHandleId);
+  const existingTombstone =
+    getTombstone(sessionKey) ??
+    (input.recordHandleId ? getTombstone(input.recordHandleId) : undefined);
   if (existingTombstone) {
     return existingTombstone;
   }
-  const session = getOrCreateSession(recordHandleId);
+  const session = getOrCreateSession(sessionKey);
   if (session.finalizePromise) {
     return session.finalizePromise;
   }
@@ -103,12 +105,12 @@ export function finalizeFragmentSession(input: {
       const drain = await drainFlights(session);
       if (drain === "timeout") {
         logger.error("autoFragmentMerge drain timeout", {
-          recordHandleId,
+          sessionId: sessionKey,
           pending: session.flights.length,
         });
         return rejectedResult("timeout", openMeta);
       }
-      if (!resolveAutoFragmentMerge(input.webhook, input.channelId)) {
+      if (!resolveAutoFragmentMerge(input.autoFragmentMerge)) {
         return emptyResult(openMeta);
       }
       files = [...session.files];
@@ -125,7 +127,7 @@ export function finalizeFragmentSession(input: {
       switch (paired.kind) {
         case "rejected":
           logger.error("autoFragmentMerge rejected", {
-            recordHandleId,
+            sessionId: sessionKey,
             reason: paired.reason,
             files,
           });
@@ -133,7 +135,7 @@ export function finalizeFragmentSession(input: {
         case "merged":
         case "remuxed":
           logger.info("autoFragmentMerge output", {
-            recordHandleId,
+            sessionId: sessionKey,
             output: paired.output,
             files,
           });
@@ -147,32 +149,32 @@ export function finalizeFragmentSession(input: {
       }
       if (paired.xmlIncomplete) {
         logger.error("autoFragmentMerge xml incomplete", {
-          recordHandleId,
+          sessionId: sessionKey,
           files,
         });
       }
       return paired;
     } catch (error) {
       if (error instanceof CommandTimeoutError) {
-        logger.error("autoFragmentMerge finalize timeout", { recordHandleId, error });
+        logger.error("autoFragmentMerge finalize timeout", { sessionId: sessionKey, error });
         return rejectedResult("timeout", openMeta, files);
       }
       if (error instanceof Error) {
-        logger.error("autoFragmentMerge finalize failed", { recordHandleId, error });
+        logger.error("autoFragmentMerge finalize failed", { sessionId: sessionKey, error });
         return rejectedResult("ffmpeg", openMeta, files);
       }
       logger.error("autoFragmentMerge finalize failed", {
-        recordHandleId,
+        sessionId: sessionKey,
         error: String(error),
       });
       return rejectedResult("ffmpeg", openMeta, files);
     } finally {
       session.files.length = 0;
       session.flights.length = 0;
-      deleteSession(recordHandleId);
+      deleteSession(sessionKey);
     }
   })();
   session.finalizePromise = finalizePromise;
-  rememberTombstone(recordHandleId, finalizePromise, now);
+  rememberSessionTombstone(sessionKey, finalizePromise, now);
   return finalizePromise;
 }

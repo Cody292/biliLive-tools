@@ -39,12 +39,12 @@ import {
   buildFragmentWebhookEvents,
   collectCompletedFragment,
   finalizeFragmentSession,
-  isAutoFragmentMergeEnabled,
   isFragmentDanmuEnabled,
   rememberFragmentOpen,
   shouldKeepFragmentSource,
   type FragmentWebhookEvent,
 } from "./fragmentSession.js";
+import { isSegmentActive } from "./segmentPolicy.js";
 import { sendBySystem, send } from "../notify.js";
 import { danmaReport, parseDanmu } from "../danmu/index.js";
 
@@ -260,6 +260,73 @@ async function postCustomWebhook(
   }
 }
 
+async function emitFragmentSessionResult(input: {
+  readonly result: Awaited<ReturnType<typeof finalizeFragmentSession>>;
+  readonly recorderId: string;
+  readonly convertEnabled: boolean;
+  readonly port: number;
+}): Promise<void> {
+  const { result, recorderId, convertEnabled, port } = input;
+  let videoPath: string | undefined;
+  if (result) {
+    if (convertEnabled && result.output === undefined && result.sources) {
+      for (const source of result.sources) {
+        if (path.extname(source).toLowerCase() === ".mp4") {
+          continue;
+        }
+        try {
+          await convert2Mp4(source);
+        } catch (error) {
+          logger.error("convert2Mp4 error", error);
+        }
+      }
+    }
+    switch (result.kind) {
+      case "merged":
+      case "remuxed":
+      case "noop": {
+        const output = result.output;
+        if (
+          output &&
+          convertEnabled &&
+          (result.kind !== "noop" || result.reason === "single-keep") &&
+          path.extname(output).toLowerCase() !== ".mp4"
+        ) {
+          try {
+            videoPath = await convert2Mp4(output);
+          } catch (error) {
+            logger.error("convert2Mp4 error", error);
+          }
+        }
+        break;
+      }
+      case "rejected":
+        break;
+      default: {
+        const unreachable: never = result;
+        throw new Error(`unhandled fragment result: ${JSON.stringify(unreachable)}`);
+      }
+    }
+  }
+  const endTime = new Date().toISOString();
+  const events = buildFragmentWebhookEvents({
+    result,
+    endTime,
+    ...(videoPath ? { videoPath } : {}),
+  });
+  if (events) {
+    await postCustomWebhook(port, events.open, recorderId);
+    await postCustomWebhook(port, events.close, recorderId);
+    return;
+  }
+  const sourceEvents = buildFragmentSourceWebhookEvents({ result, endTime });
+  if (!sourceEvents) return;
+  for (const pair of sourceEvents) {
+    await postCustomWebhook(port, pair.open, recorderId);
+    await postCustomWebhook(port, pair.close, recorderId);
+  }
+}
+
 async function convert2Mp4(videoFile: string): Promise<string> {
   const output = replaceExtName(videoFile, ".mp4");
   if (await fs.pathExists(output)) {
@@ -293,6 +360,32 @@ async function convert2Mp4(videoFile: string): Promise<string> {
 }
 
 export async function createRecorderManager(appConfig: AppConfig) {
+  const segmentMergeWarningKeys = new Set<string>();
+  const getEffectiveAutoFragmentMerge = (data: RecorderConfigType | null | undefined): boolean => {
+    return data?.autoFragmentMerge === true && !isSegmentActive(data?.segment);
+  };
+  const warnSegmentMergeConflict = (input: {
+    readonly recorderId: string;
+    readonly data: RecorderConfigType | null | undefined;
+    readonly sessionId?: string;
+    readonly recordHandleId?: string;
+  }): void => {
+    if (input.data?.autoFragmentMerge !== true || getEffectiveAutoFragmentMerge(input.data)) {
+      return;
+    }
+    const sessionKey = input.sessionId ?? input.recordHandleId ?? "unknown";
+    const warningKey = `${input.recorderId}:${sessionKey}`;
+    if (segmentMergeWarningKeys.has(warningKey)) return;
+    segmentMergeWarningKeys.add(warningKey);
+    logger.warn("segment disables autoFragmentMerge", {
+      recorderId: input.recorderId,
+      segment: input.data.segment,
+    });
+  };
+  const clearSegmentMergeWarning = (recorderId: string, sessionId: string): void => {
+    segmentMergeWarningKeys.delete(`${recorderId}:${sessionId}`);
+  };
+
   /**
    * 更新录制器
    * @param args - 更新参数
@@ -478,87 +571,11 @@ export async function createRecorderManager(appConfig: AppConfig) {
       time: new Date(timestamp).toISOString(),
     });
   });
-  manager.on("RecordStop", ({ recorder, recordHandle }) => {
+  manager.on("RecordStop", ({ recorder }) => {
     logger.info("Manager stop", recorder);
     void sendRecorderExternalEvent("record_end", {
       ...getRecorderExternalBase(recorder),
     });
-    const stoppedConfig = appConfig.getAll();
-    void finalizeFragmentSession({
-      recordHandleId: recordHandle.id,
-      channelId: recorder.channelId,
-      webhook: stoppedConfig.webhook,
-      ffmpegPath: getBinPath().ffmpegPath,
-      ffprobePath: getBinPath().ffprobePath,
-    })
-      .then(async (result) => {
-        const convertEnabled = Boolean(recorderConfig.get(recorder.id)?.convert2Mp4);
-        let videoPath: string | undefined;
-        if (result) {
-          if (convertEnabled && result.output === undefined && result.sources) {
-            for (const source of result.sources) {
-              if (path.extname(source).toLowerCase() === ".mp4") {
-                continue;
-              }
-              try {
-                await convert2Mp4(source);
-              } catch (error) {
-                logger.error("convert2Mp4 error", error);
-              }
-            }
-          }
-          switch (result.kind) {
-            case "merged":
-            case "remuxed":
-            case "noop": {
-              const output = result.output;
-              if (
-                output &&
-                convertEnabled &&
-                (result.kind !== "noop" || result.reason === "single-keep") &&
-                path.extname(output).toLowerCase() !== ".mp4"
-              ) {
-                try {
-                  videoPath = await convert2Mp4(output);
-                } catch (error) {
-                  logger.error("convert2Mp4 error", error);
-                }
-              }
-              break;
-            }
-            case "rejected":
-              break;
-            default: {
-              const unreachable: never = result;
-              throw new Error(`unhandled fragment result: ${JSON.stringify(unreachable)}`);
-            }
-          }
-        }
-        const endTime = new Date().toISOString();
-        const events = buildFragmentWebhookEvents({
-          result,
-          endTime,
-          ...(videoPath ? { videoPath } : {}),
-        });
-        if (events) {
-          await postCustomWebhook(stoppedConfig.port, events.open, recorder.id);
-          await postCustomWebhook(stoppedConfig.port, events.close, recorder.id);
-          return;
-        }
-        const sourceEvents = buildFragmentSourceWebhookEvents({ result, endTime });
-        if (!sourceEvents) return;
-        for (const pair of sourceEvents) {
-          await postCustomWebhook(stoppedConfig.port, pair.open, recorder.id);
-          await postCustomWebhook(stoppedConfig.port, pair.close, recorder.id);
-        }
-      })
-      .catch((error) => {
-        logger.error("autoFragmentMerge webhook emit failed", {
-          recordHandleId: recordHandle.id,
-          error,
-        });
-      });
-    // 录制结束通知，自动监听&开启推送时才会发送
     const config = recorderConfig.get(recorder.id);
     if (!config) return;
     if (config?.liveEndNotification && !config?.disableAutoCheck) {
@@ -572,6 +589,39 @@ export async function createRecorderManager(appConfig: AppConfig) {
         1000 * 60 * 3,
       );
     }
+  });
+  manager.on("RecordSessionEnd", ({ recorder, sessionId }) => {
+    const endedConfig = appConfig.getAll();
+    const recorderSetting = recorderConfig.get(recorder.id);
+    warnSegmentMergeConflict({
+      recorderId: recorder.id,
+      data: recorderSetting,
+      sessionId,
+    });
+    const autoFragmentMergeEnabled = getEffectiveAutoFragmentMerge(recorderSetting);
+    void finalizeFragmentSession({
+      sessionId,
+      autoFragmentMerge: autoFragmentMergeEnabled,
+      ffmpegPath: getBinPath().ffmpegPath,
+      ffprobePath: getBinPath().ffprobePath,
+    })
+      .then(async (result) => {
+        await emitFragmentSessionResult({
+          result,
+          recorderId: recorder.id,
+          convertEnabled: Boolean(recorderSetting?.convert2Mp4),
+          port: endedConfig.port,
+        });
+      })
+      .catch((error) => {
+        logger.error("autoFragmentMerge webhook emit failed", {
+          sessionId,
+          error,
+        });
+      })
+      .finally(() => {
+        clearSegmentMergeWarning(recorder.id, sessionId ?? "unknown");
+      });
   });
   manager.on("error", (error) => {
     logger.error("Manager error", error);
@@ -599,8 +649,8 @@ export async function createRecorderManager(appConfig: AppConfig) {
   // manager.on("RecordSegment", (debug) => {
   //   console.error("Manager segment", debug);
   // });
-  manager.on("videoFileCreated", async ({ recorder, filename, rawFilename, recordHandleId }) => {
-    logger.info("Manager videoFileCreated", { recorder, filename, rawFilename, recordHandleId });
+  manager.on("videoFileCreated", async ({ recorder, filename, rawFilename, recordHandleId, sessionId }) => {
+    logger.info("Manager videoFileCreated", { recorder, filename, rawFilename, recordHandleId, sessionId });
     const videoStartTime = new Date();
     const liveStartTime = recorder.liveInfo?.liveStartTime;
 
@@ -610,19 +660,24 @@ export async function createRecorderManager(appConfig: AppConfig) {
     }
     const data = recorderConfig.get(recorder.id);
     const createdConfig = appConfig.getAll();
-    const autoFragmentMergeEnabled = isAutoFragmentMergeEnabled(
-      createdConfig.webhook,
-      recorder.channelId,
-    );
-    const deferWebhook = Boolean(recordHandleId && autoFragmentMergeEnabled);
-    if (autoFragmentMergeEnabled && !recordHandleId) {
-      logger.warn("autoFragmentMerge skipped fragment webhook without record handle", {
+    warnSegmentMergeConflict({
+      recorderId: recorder.id,
+      data,
+      sessionId,
+      recordHandleId,
+    });
+    const autoFragmentMergeEnabled = getEffectiveAutoFragmentMerge(data);
+    const fragmentKey = sessionId ?? recordHandleId;
+    const deferWebhook = Boolean(fragmentKey && autoFragmentMergeEnabled);
+    if (autoFragmentMergeEnabled && !fragmentKey) {
+      logger.warn("autoFragmentMerge skipped fragment webhook without session", {
         recorderId: recorder.id,
         filename,
       });
     }
     if (deferWebhook) {
       rememberFragmentOpen({
+        sessionId,
         recordHandleId,
         roomId: recorder.channelId,
         title: recorder.liveInfo.title,
@@ -672,25 +727,30 @@ export async function createRecorderManager(appConfig: AppConfig) {
       platform: recorder.providerId,
     });
   });
-  manager.on("videoFileCompleted", async ({ recorder, filename, stats, recordHandleId }) => {
-    logger.info("Manager videoFileCompleted", { recorder, filename, stats, recordHandleId });
+  manager.on("videoFileCompleted", async ({ recorder, filename, stats, recordHandleId, sessionId }) => {
+    logger.info("Manager videoFileCompleted", { recorder, filename, stats, recordHandleId, sessionId });
 
     const config = appConfig.getAll();
-    const autoFragmentMergeEnabled = isAutoFragmentMergeEnabled(
-      config.webhook,
-      recorder?.channelId,
-    );
+    const data = recorderConfig.get(recorder.id);
+    warnSegmentMergeConflict({
+      recorderId: recorder.id,
+      data,
+      sessionId,
+      recordHandleId,
+    });
+    const autoFragmentMergeEnabled = getEffectiveAutoFragmentMerge(data);
+    const fragmentKey = sessionId ?? recordHandleId;
     collectCompletedFragment({
+      sessionId,
       recordHandleId,
       filename,
-      channelId: recorder?.channelId,
-      webhook: config.webhook,
+      autoFragmentMerge: autoFragmentMergeEnabled,
     });
     const endFlight = beginFragmentFlight(
-      autoFragmentMergeEnabled ? recordHandleId : undefined,
+      autoFragmentMergeEnabled ? { sessionId, recordHandleId } : undefined,
     );
-    if (autoFragmentMergeEnabled && !recordHandleId) {
-      logger.warn("autoFragmentMerge skipped fragment webhook without record handle", {
+    if (autoFragmentMergeEnabled && !fragmentKey) {
+      logger.warn("autoFragmentMerge skipped fragment webhook without session", {
         recorderId: recorder.id,
         filename,
       });
@@ -698,7 +758,6 @@ export async function createRecorderManager(appConfig: AppConfig) {
 
     try {
       const endTime = new Date();
-      const data = recorderConfig.get(recorder.id);
       const title = recorder?.liveInfo?.title;
       const username = recorder?.liveInfo?.owner;
       const channelId = recorder?.channelId;
@@ -764,10 +823,10 @@ export async function createRecorderManager(appConfig: AppConfig) {
         );
       }
 
-      if (data?.convert2Mp4 && !(autoFragmentMergeEnabled && recordHandleId)) {
+      if (data?.convert2Mp4 && !(autoFragmentMergeEnabled && fragmentKey)) {
         try {
           await convert2Mp4(filename);
-          if (shouldKeepFragmentSource(config.webhook, recorder?.channelId)) {
+          if (shouldKeepFragmentSource(autoFragmentMergeEnabled)) {
             logger.info("转换 mp4 成功，已保留原文件", { filename });
           } else {
             await fs.unlink(filename);
