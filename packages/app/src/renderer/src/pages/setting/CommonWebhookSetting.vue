@@ -302,22 +302,6 @@
     >
   </n-form-item>
 
-  <n-form-item>
-    <template #label>
-      <Tip
-        text="碎片自动合并"
-        tip="录制结束后将同一场次碎片合并为本地独立成片，默认关闭。成功后保留原始碎片，合并后再进入后续上传/压制流程"
-      ></Tip>
-    </template>
-    <n-switch v-model:value="data.autoFragmentMerge" :disabled="globalFieldsObj.autoFragmentMerge" />
-    <n-checkbox
-      v-if="isRoom"
-      v-model:checked="globalFieldsObj.autoFragmentMerge"
-      class="global-checkbox"
-      >全局</n-checkbox
-    >
-  </n-form-item>
-
   <h2>上传配置</h2>
   <n-form-item label="上传账号">
     <n-select
@@ -628,7 +612,6 @@ const data = defineModel<AppRoomConfig>("data", {
     title: "",
     danmu: false,
     autoPartMerge: false,
-    autoFragmentMerge: false,
     hotProgress: false,
     useLiveCover: false,
     partTitleTemplate: "",

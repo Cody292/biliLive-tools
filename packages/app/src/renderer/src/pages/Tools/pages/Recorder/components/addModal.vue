@@ -81,6 +81,15 @@
             </template>
             <n-switch v-model:value="config.sendToWebhook" />
           </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip
+                text="碎片自动合并"
+                tip="本地将同一场直播碎片合并；与是否发送至 webhook 独立"
+              ></Tip>
+            </template>
+            <n-switch v-model:value="config.autoFragmentMerge" />
+          </n-form-item>
 
           <h2>文件</h2>
           <template v-if="true">
@@ -951,6 +960,7 @@ import {
 } from "@renderer/enums/recorder";
 import { useConfirm, useBreakpoints } from "@renderer/hooks";
 import { defaultRecordConfig } from "@biliLive-tools/shared/enum.js";
+import { isSegmentActive } from "@biliLive-tools/shared/recorder/segmentPolicy.js";
 import { cloneDeep } from "lodash-es";
 
 import type { Recorder, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
@@ -1084,6 +1094,17 @@ const confirm = async () => {
   }
   ensureDouyinCookieConfig();
   ensureDouyuCookieConfig();
+
+  const effectiveSegment = globalFieldsObj.value.segment
+    ? appConfig.value.recorder.segment
+    : config.value.segment;
+  if (isSegmentActive(effectiveSegment) && config.value.autoFragmentMerge === true) {
+    notice.error({
+      title: "分段与碎片自动合并不能同时开启",
+      duration: 1000,
+    });
+    return;
+  }
 
   if (config.value.providerId === "Bilibili" && !config.value.uid) {
     const [status] = await confirmDialog.warning({
