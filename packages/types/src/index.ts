@@ -43,6 +43,7 @@ export const recorderNoGlobalFollowFields: Array<
     | "extra"
     | "disableAutoCheck"
     | "sendToWebhook"
+    | "autoFragmentMerge"
     | "streamPriorities"
     | "sourcePriorities"
     | "noGlobalFollowFields"
@@ -157,8 +158,6 @@ export type CommonRoomConfig = {
   danmuPreset?: string | null;
   autoPartMerge: boolean;
   partMergeMinute?: number;
-  /** 录制结束后将同场次碎片合并为本地独立成片，默认关闭，不删除源片 */
-  autoFragmentMerge: boolean;
   uid?: number;
   /** 生成高能进度条 */
   hotProgress: boolean;
@@ -590,6 +589,8 @@ export interface Recorder {
   disableAutoCheck?: boolean;
   /** 发送至发送至软件webhook */
   sendToWebhook?: boolean;
+  /** 录制结束后将同场次碎片合并为本地独立成片；按主播独立，默认关闭，不跟随全局配置 */
+  autoFragmentMerge?: boolean;
   /** 画质 */
   quality:
     | "lowest"
