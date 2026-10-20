@@ -46,6 +46,8 @@ packages/DouYuRecorder/tsconfig.vitest.json
 packages/DouYuRecorder/vitest.config.ts
 packages/StreamGet/test/douyu/errorCode.test.ts
 packages/liveManager/test/manager.videoFileCompleted.test.ts
+packages/liveManager/test/manager.test.ts
+packages/app/test/main/handlers.segmentMerge.test.ts
 
 # Local experiment / planning / scratch assets
 .temp-research/
