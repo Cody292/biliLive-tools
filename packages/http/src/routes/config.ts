@@ -9,6 +9,11 @@ import multer from "../middleware/multer.js";
 import { _send } from "@biliLive-tools/shared/notify.js";
 import { getTempPath } from "@biliLive-tools/shared/utils/index.js";
 import { reconnectDB, backupDB, closeDB } from "@biliLive-tools/shared/db/index.js";
+import {
+  assertGlobalSegmentMergeConflict,
+  isSegmentActive,
+  SegmentMergeConflictError,
+} from "@biliLive-tools/shared/recorder/segmentPolicy.js";
 
 const router = new Router({
   prefix: "/config",
@@ -32,6 +37,26 @@ router.get("/", async (ctx) => {
 
 router.post("/", async (ctx) => {
   const data = ctx.request.body;
+  try {
+    const newSegment = data?.recorder?.segment;
+    if (isSegmentActive(newSegment)) {
+      assertGlobalSegmentMergeConflict({
+        newGlobalSegment: newSegment,
+        currentRecorders: appConfig.get("recorders"),
+        incomingRecorders: data?.recorders,
+      });
+    }
+  } catch (error) {
+    if (error instanceof SegmentMergeConflictError) {
+      ctx.status = 400;
+      ctx.body = {
+        code: error.code,
+        message: error.message,
+      };
+      return;
+    }
+    throw error;
+  }
   // @ts-ignore
   appConfig.setAll(data);
   ctx.body = "success";
@@ -52,6 +77,30 @@ router.post("/set", async (ctx) => {
   if (!data.key || !data.value) {
     ctx.body = "key and value is required";
     return;
+  }
+  try {
+    if (data.key === "recorder" && isSegmentActive(data.value?.segment)) {
+      assertGlobalSegmentMergeConflict({
+        newGlobalSegment: data.value.segment,
+        currentRecorders: appConfig.get("recorders"),
+      });
+    } else if (data.key === "recorders") {
+      assertGlobalSegmentMergeConflict({
+        newGlobalSegment: appConfig.get("recorder")?.segment,
+        currentRecorders: appConfig.get("recorders"),
+        incomingRecorders: data.value,
+      });
+    }
+  } catch (error) {
+    if (error instanceof SegmentMergeConflictError) {
+      ctx.status = 400;
+      ctx.body = {
+        code: error.code,
+        message: error.message,
+      };
+      return;
+    }
+    throw error;
   }
   // @ts-ignore
   appConfig.set(data.key, data.value);

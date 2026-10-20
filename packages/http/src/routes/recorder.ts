@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import logger from "@biliLive-tools/shared/utils/log.js";
 
 import { pick } from "lodash-es";
+import { SegmentMergeConflictError } from "@biliLive-tools/shared/recorder/segmentPolicy.js";
 import recorderService from "../services/recorder.js";
 import { appConfig } from "../index.js";
 import streamerDetailService from "@biliLive-tools/shared/db/service/streamerDetailService.js";
@@ -18,6 +19,21 @@ const router = new Router({
 });
 
 const DANMA_TEST_WS_PATH = "/recorder/ws/danma-test";
+
+function respondSegmentMergeConflict(
+  ctx: { status: number; body: unknown },
+  error: unknown,
+): boolean {
+  if (!(error instanceof SegmentMergeConflictError)) {
+    return false;
+  }
+  ctx.status = 400;
+  ctx.body = {
+    message: error.message,
+    code: error.code,
+  };
+  return true;
+}
 const danmaTestWSS = new WebSocketServer({ noServer: true });
 
 const parsePositiveNumber = (value: string | null) => {
@@ -266,6 +282,7 @@ router.post("/add", async (ctx) => {
     "saveSCDanma",
     "segment",
     "sendToWebhook",
+    "autoFragmentMerge",
     "uid",
     "saveCover",
     "convert2Mp4",
@@ -296,8 +313,15 @@ router.post("/add", async (ctx) => {
     "api",
   );
 
-  const data = await recorderService.addRecorder(args);
-  ctx.body = { payload: data };
+  try {
+    const data = await recorderService.addRecorder(args);
+    ctx.body = { payload: data };
+  } catch (error) {
+    if (respondSegmentMergeConflict(ctx, error)) {
+      return;
+    }
+    throw error;
+  }
 });
 
 /**
@@ -326,7 +350,7 @@ router.post("/:id/stream", async (ctx) => {
   };
 });
 
-router.put("/:id", (ctx) => {
+router.put("/:id", async (ctx) => {
   const { id } = ctx.params;
   const patch = pick(
     ctx.request.body as Omit<RecorderAPI["updateRecorder"]["Args"], "id">,
@@ -343,6 +367,7 @@ router.put("/:id", (ctx) => {
     "saveCover",
     "segment",
     "sendToWebhook",
+    "autoFragmentMerge",
     "uid",
     "qualityRetry",
     "formatName",
@@ -372,7 +397,14 @@ router.put("/:id", (ctx) => {
     "api",
   );
 
-  ctx.body = { payload: recorderService.updateRecorder({ id, ...patch }) };
+  try {
+    ctx.body = { payload: await recorderService.updateRecorder({ id, ...patch }) };
+  } catch (error) {
+    if (respondSegmentMergeConflict(ctx, error)) {
+      return;
+    }
+    throw error;
+  }
 });
 
 /**
