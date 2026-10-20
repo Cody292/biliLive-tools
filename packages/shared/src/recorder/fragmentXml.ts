@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
 import { mergeXmlWithDurations, type XmlMergeSegment } from "../task/danmu.js";
-import { getUnusedFileName, replaceExtName } from "../utils/index.js";
+import { replaceExtName } from "../utils/index.js";
 import logger from "../utils/log.js";
 
 export type FragmentXmlPairResult =
@@ -46,7 +46,7 @@ export async function pairFragmentXml(input: {
   }
 
   try {
-    const output = await getUnusedFileName(siblingXml(input.outputVideo));
+    const output = siblingXml(input.outputVideo);
     const xmlPath = await mergeXmlWithDurations(segments, { output, saveMeta: true });
     return { kind: "ok", xmlPath };
   } catch (error) {

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 
 import { getUnusedFileName, uuid } from "../utils/index.js";
 import logger from "../utils/log.js";
+import { archiveToOld, rollbackMoves, type FileMove } from "./fragmentMergeArchive.js";
 import {
   CommandTimeoutError,
   copyRemux,
@@ -32,7 +33,7 @@ export {
 export type FragmentProcessResult =
   | { readonly kind: "noop"; readonly reason: "empty" | "single-keep" | "capability-skip" }
   | { readonly kind: "remuxed"; readonly output: string; readonly durations: readonly number[] }
-  | { readonly kind: "merged"; readonly output: string; readonly durations: readonly number[] }
+  | { readonly kind: "merged"; readonly output: string; readonly durations: readonly number[]; readonly archivedSources: readonly string[] }
   | { readonly kind: "rejected"; readonly reason: "mixed" | "truncated" | "ffmpeg" | "timeout" };
 
 type ProcessFragmentsInput = {
@@ -157,11 +158,10 @@ async function mergeCopy(
   files: readonly string[],
 ): Promise<FragmentProcessResult> {
   const head = files[0];
-  if (!head) {
-    return { kind: "noop", reason: "empty" };
-  }
+  if (!head) return { kind: "noop", reason: "empty" };
   let tempFile: string | undefined;
   let listFile: string | undefined;
+  let moves: readonly FileMove[] = [];
   try {
     const fingerprints = await Promise.all(files.map((file) => probe(run, input.ffprobePath, file)));
     const first = fingerprints[0];
@@ -169,11 +169,13 @@ async function mergeCopy(
       return { kind: "rejected", reason: "mixed" };
     }
     const parsed = path.parse(head);
-    const output = await getUnusedFileName(path.join(parsed.dir, `${parsed.name}-merged${parsed.ext}`));
+    const output = path.join(parsed.dir, `${parsed.name}${parsed.ext}`);
+    const archived = await archiveToOld(files, output);
+    moves = archived.moves;
     tempFile = tempSibling(output);
     listFile = `${tempFile}.concat.txt`;
     const expectedDuration = fingerprints.reduce((sum, item) => sum + item.duration, 0);
-    await fs.writeFile(listFile, files.map(concatListLine).join("\n"));
+    await fs.writeFile(listFile, archived.archivedSources.map(concatListLine).join("\n"));
     await copyRemux(
       run,
       input.ffmpegPath,
@@ -188,18 +190,25 @@ async function mergeCopy(
       expectedDuration,
     });
     await discardTemp(listFile);
+    listFile = undefined;
     if (!ok) {
       await discardTemp(tempFile);
+      tempFile = undefined;
+      await rollbackMoves(moves);
       return { kind: "rejected", reason: "truncated" };
     }
+    const promoted = await promoteTemp(tempFile, output);
+    tempFile = undefined;
     return {
       kind: "merged",
-      output: await promoteTemp(tempFile, output),
+      output: promoted,
       durations: fingerprints.map((item) => item.duration),
+      archivedSources: archived.archivedSources,
     };
   } catch (error) {
     if (listFile) await discardTemp(listFile);
     if (tempFile) await discardTemp(tempFile);
+    await rollbackMoves(moves);
     return rejectedFromCatch(error, "autoFragmentMerge merge failed", { files });
   }
 }

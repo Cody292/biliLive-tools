@@ -198,7 +198,14 @@ export async function attachFragmentPairing(
       });
       return attachXml(result, source, xml, openMeta);
     }
-    case "merged":
+    case "merged": {
+      const xml = await pairFragmentXml({
+        videos: result.archivedSources,
+        durations: result.durations,
+        outputVideo: result.output,
+      });
+      return attachXml(result, result.output, xml, openMeta);
+    }
     case "remuxed": {
       const xml = await pairFragmentXml({
         videos: files,
