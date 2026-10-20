@@ -98,6 +98,60 @@ interface ShortRecordingState {
   preferAlternativeStream: boolean;
 }
 
+type RecordSessionEndReason = "manual-stop" | "remove-recorder" | "not-living" | "live-id-changed";
+
+interface LiveRecordSession {
+  sessionId: string;
+  liveId?: string;
+  lastHandleId?: string;
+}
+
+function buildRecordSessionId(
+  recorderId: string,
+  liveId: string | undefined,
+  handleId: string,
+): string {
+  if (liveId) return `${recorderId}:${liveId}:${handleId}`;
+  return `${recorderId}:handle:${handleId}`;
+}
+
+function isSameLiveSession(
+  existing: LiveRecordSession,
+  liveId: string | undefined,
+  handleId: string,
+): boolean {
+  const incoming = liveId === undefined ? "missing" : "present";
+  const previous = existing.liveId === undefined ? "missing" : "present";
+  switch (incoming) {
+    case "present":
+      switch (previous) {
+        case "present":
+          return liveId === existing.liveId;
+        case "missing":
+          return false;
+        default: {
+          const unreachable: never = previous;
+          throw new Error(`unhandled previous live presence: ${String(unreachable)}`);
+        }
+      }
+    case "missing":
+      switch (previous) {
+        case "present":
+          return false;
+        case "missing":
+          return existing.lastHandleId === handleId;
+        default: {
+          const unreachable: never = previous;
+          throw new Error(`unhandled previous live presence: ${String(unreachable)}`);
+        }
+      }
+    default: {
+      const unreachable: never = incoming;
+      throw new Error(`unhandled incoming live presence: ${String(unreachable)}`);
+    }
+  }
+}
+
 function normalizeTimelineText(text: string): string {
   return text.trim();
 }
@@ -173,7 +227,11 @@ export interface RecorderManager<
   E extends AnyObject = ME & PE,
 > extends Emitter<{
     error: { source: string; err: unknown };
-    RecordStart: { recorder: SerializedRecorder<E>; recordHandle: RecordHandle };
+    RecordStart: {
+      recorder: SerializedRecorder<E>;
+      recordHandle: RecordHandle;
+      sessionId: string;
+    };
     RecordSegment: { recorder: SerializedRecorder<E>; recordHandle?: RecordHandle };
     videoFileCreated: {
       recorder: SerializedRecorder<E>;
@@ -181,19 +239,32 @@ export interface RecorderManager<
       cover?: string;
       rawFilename?: string;
       recordHandleId?: string;
+      sessionId?: string;
     };
     videoFileCompleted: {
       recorder: SerializedRecorder<E>;
       filename: string;
       stats?: XmlStreamStats;
       recordHandleId?: string;
+      sessionId?: string;
     };
     RecorderProgress: { recorder: SerializedRecorder<E>; progress: Progress };
     RecoderLiveStart: { recorder: Recorder<E> };
     // 检测到充电直播(付费/DRM 加密直播)
     RecoderChargeLive: { recorder: Recorder<E> };
 
-    RecordStop: { recorder: SerializedRecorder<E>; recordHandle: RecordHandle; reason?: string };
+    RecordStop: {
+      recorder: SerializedRecorder<E>;
+      recordHandle: RecordHandle;
+      reason?: string;
+      sessionId?: string;
+    };
+    RecordSessionEnd: {
+      recorder: SerializedRecorder<E>;
+      sessionId: string;
+      liveId?: string;
+      reason: "manual-stop" | "remove-recorder" | "not-living" | "live-id-changed";
+    };
     Message: { recorder: SerializedRecorder<E>; message: Message };
     RecorderUpdated: {
       recorder: SerializedRecorder<E>;
@@ -274,6 +345,8 @@ export function createRecorderManager<
   // 短录制检测仅用于当前进程，不需要持久化。
   const recordAttempts = new Map<string, RecordAttempt>();
   const shortRecordingStates = new Map<string, ShortRecordingState>();
+  const liveSessions = new Map<string, LiveRecordSession>();
+  const handleSessions = new Map<string, string>();
 
   const getStreamRetryHint = (recorder: Recorder<E>) => {
     const state = shortRecordingStates.get(recorder.id);
@@ -283,6 +356,45 @@ export function createRecorderManager<
       liveId: state.liveId,
       preferAlternativeStream: true,
     } as const;
+  };
+
+  const emitRecordSessionEnd = (
+    recorder: Recorder<E>,
+    session: LiveRecordSession,
+    reason: RecordSessionEndReason,
+  ) => {
+    manager.emit("RecordSessionEnd", {
+      recorder: recorder.toJSON(),
+      sessionId: session.sessionId,
+      liveId: session.liveId,
+      reason,
+    });
+  };
+
+  const continueOrReplaceLiveSession = (
+    recorder: Recorder<E>,
+    handleId: string,
+    liveId: string | undefined,
+  ): string => {
+    const existing = liveSessions.get(recorder.id);
+    if (existing) {
+      if (isSameLiveSession(existing, liveId, handleId)) {
+        existing.lastHandleId = handleId;
+        return existing.sessionId;
+      }
+      liveSessions.delete(recorder.id);
+      emitRecordSessionEnd(recorder, existing, "live-id-changed");
+    }
+    const sessionId = buildRecordSessionId(recorder.id, liveId, handleId);
+    liveSessions.set(recorder.id, { sessionId, liveId, lastHandleId: handleId });
+    return sessionId;
+  };
+
+  const endLiveSession = (recorder: Recorder<E>, reason: RecordSessionEndReason) => {
+    const session = liveSessions.get(recorder.id);
+    if (!session) return;
+    liveSessions.delete(recorder.id);
+    emitRecordSessionEnd(recorder, session, reason);
   };
 
   // 存储每个 provider 的 timer，key 为 providerId
@@ -307,6 +419,11 @@ export function createRecorderManager<
             banLiveId: tempBanObj[recorder.channelId],
             streamRetryHint: getStreamRetryHint(recorder),
           });
+          if (recorder.recordHandle == null && recorder.liveInfo?.living === false) {
+            endLiveSession(recorder, "not-living");
+          }
+        } else if (isLive === false && recorder.recordHandle == null) {
+          endLiveSession(recorder, "not-living");
         }
       }
     };
@@ -354,6 +471,9 @@ export function createRecorderManager<
         banLiveId,
         streamRetryHint: getStreamRetryHint(recorder),
       });
+      if (recorder.recordHandle == null && recorder.liveInfo?.living === false) {
+        endLiveSession(recorder, "not-living");
+      }
     };
 
     threads.push(
@@ -431,11 +551,14 @@ export function createRecorderManager<
           }
         }
 
+        const sessionId = continueOrReplaceLiveSession(recorder, recordHandle.id, liveId);
+        handleSessions.set(recordHandle.id, sessionId);
+
         recorder.appendTimeline?.({
           startTime: recorder.liveInfo?.recordStartTime?.getTime() ?? Date.now(),
           text: `开始录制：${recordHandle.stream}/${recordHandle.source}/${recordHandle.recorderType}/${recordHandle.url}`,
         });
-        this.emit("RecordStart", { recorder: recorder.toJSON(), recordHandle });
+        this.emit("RecordStart", { recorder: recorder.toJSON(), recordHandle, sessionId });
       });
       recorder.on("RecordSegment", (recordHandle) =>
         this.emit("RecordSegment", { recorder: recorder.toJSON(), recordHandle }),
@@ -452,8 +575,21 @@ export function createRecorderManager<
         }
         return activeRecordHandleId;
       };
+      const getActiveSessionId = (recordHandleId: string | undefined): string | undefined => {
+        if (recordHandleId) {
+          const knownSessionId = handleSessions.get(recordHandleId);
+          if (knownSessionId) return knownSessionId;
+        }
+        const liveSession = liveSessions.get(recorder.id);
+        if (liveSession) return liveSession.sessionId;
+        if (recordHandleId) {
+          return buildRecordSessionId(recorder.id, recorder.liveInfo?.liveId, recordHandleId);
+        }
+        return undefined;
+      };
       recorder.on("videoFileCreated", ({ filename, cover, rawFilename }) => {
         const recordHandleId = getActiveRecordHandleId();
+        const sessionId = getActiveSessionId(recordHandleId);
         if (recorder.saveCover && recorder?.liveInfo?.cover) {
           const coverPath = replaceExtName(filename, ".jpg");
           downloadImage(cover ?? recorder?.liveInfo?.cover, coverPath);
@@ -467,10 +603,12 @@ export function createRecorderManager<
           filename,
           rawFilename,
           recordHandleId,
+          sessionId,
         });
       });
       recorder.on("videoFileCompleted", ({ filename, stats }) => {
         const recordHandleId = getActiveRecordHandleId();
+        const sessionId = getActiveSessionId(recordHandleId);
         recorder.appendTimeline?.({
           startTime: Date.now(),
           text: `视频文件创建完成：${filename}`,
@@ -480,6 +618,7 @@ export function createRecorderManager<
           filename,
           stats,
           recordHandleId,
+          sessionId,
         });
       });
       recorder.on("Message", (message) =>
@@ -529,7 +668,15 @@ export function createRecorderManager<
           }
         }
 
-        this.emit("RecordStop", { recorder: recorder.toJSON(), recordHandle, reason });
+        this.emit("RecordStop", {
+          recorder: recorder.toJSON(),
+          recordHandle,
+          reason,
+          sessionId: liveSessions.get(recorder.id)?.sessionId,
+        });
+        if (reason === "manual stop") {
+          endLiveSession(recorder, "manual-stop");
+        }
         const maxRetryCount = 10;
         // 默认策略下，如果录制被中断，那么会在下一个检查周期时重新检查直播状态并重新开始录制，这种策略的问题就是一部分时间会被漏掉。
         // 如果开启了该选项，且录制开始时间与结束时间相差在一分钟以上（某些平台下播会扔会有重复流），那么会立即进行一次检查。
@@ -612,7 +759,24 @@ export function createRecorderManager<
     removeRecorder(recorder) {
       const idx = this.recorders.findIndex((item) => item === recorder);
       if (idx === -1) return;
-      recorder.recordHandle?.stop("remove recorder");
+      const activeRecordHandle = recorder.recordHandle;
+      if (activeRecordHandle) {
+        let stopPromise: Promise<void>;
+        try {
+          stopPromise = Promise.resolve(activeRecordHandle.stop("remove recorder"));
+        } catch (err: unknown) {
+          stopPromise = Promise.reject(err);
+        }
+        stopPromise
+          .catch((err: unknown) => {
+            this.emit("error", { source: "removeRecorder", err });
+          })
+          .finally(() => {
+            endLiveSession(recorder, "remove-recorder");
+          });
+      } else {
+        endLiveSession(recorder, "remove-recorder");
+      }
       this.recorders.splice(idx, 1);
 
       delete tempBanObj[recorder.channelId];
