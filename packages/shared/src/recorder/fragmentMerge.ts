@@ -129,7 +129,13 @@ async function remuxCopyToMp4(
   const tempFile = tempSibling(output);
   try {
     const sourceMeta = await probe(run, input.ffprobePath, source);
-    await copyRemux(run, input.ffmpegPath, ["-i", source], tempFile);
+    await copyRemux(
+      run,
+      input.ffmpegPath,
+      ["-i", source],
+      tempFile,
+      mediaValidateOptions(sourceMeta.duration),
+    );
     const ok = await validateOutput({
       run,
       ffmpegPath: input.ffmpegPath,
@@ -181,6 +187,7 @@ async function mergeCopy(
       input.ffmpegPath,
       ["-f", "concat", "-safe", "0", "-i", listFile],
       tempFile,
+      mediaValidateOptions(expectedDuration),
     );
     const ok = await validateOutput({
       run,

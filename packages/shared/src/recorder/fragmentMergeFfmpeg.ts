@@ -197,6 +197,7 @@ export async function copyRemux(
   ffmpegPath: string,
   argsPrefix: readonly string[],
   output: string,
+  options?: CommandRunOptions,
 ): Promise<void> {
   const muxer = muxerForExt(path.extname(output));
   const args = ["-y", "-xerror", ...argsPrefix, "-c", "copy"];
@@ -204,5 +205,5 @@ export async function copyRemux(
     args.push("-f", muxer);
   }
   args.push(output);
-  await run(ffmpegPath, args);
+  await run(ffmpegPath, args, options);
 }
