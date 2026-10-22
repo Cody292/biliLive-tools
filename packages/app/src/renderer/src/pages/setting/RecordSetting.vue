@@ -99,7 +99,15 @@
                 text="分段"
               ></Tip>
             </template>
-            <n-input v-model:value="config.recorder.segment" placeholder="请输入分段参数" />
+            <div style="display: flex; gap: 10px; align-items: center; width: 100%">
+              <n-switch v-model:value="segmentEnabled" />
+              <span style="white-space: nowrap">启用分段</span>
+              <n-input
+                v-model:value="config.recorder.segment"
+                :disabled="!segmentEnabled"
+                placeholder="请输入分段参数"
+              />
+            </div>
           </n-form-item>
 
           <n-form-item>
@@ -953,6 +961,7 @@ import {
   persistDouyinScanLogin,
 } from "./douyinAccounts";
 
+import { isSegmentActive } from "@biliLive-tools/shared/recorder/segmentPolicy.js";
 import type { AppConfig, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
 
 const config = defineModel<AppConfig>("data", {
@@ -961,6 +970,51 @@ const config = defineModel<AppConfig>("data", {
 const emit = defineEmits<{
   requestSave: [];
 }>();
+
+const defaultGlobalSegment = "90";
+const isSegmentEnabled = ref<boolean>(isSegmentActive(config.value?.recorder?.segment));
+const lastValidSegment = ref<string>(
+  isSegmentActive(config.value?.recorder?.segment)
+    ? String(config.value.recorder.segment)
+    : defaultGlobalSegment,
+);
+
+watch(
+  () => config.value?.recorder,
+  (recorder) => {
+    if (!recorder) return;
+    const currentSegment = recorder.segment;
+    const active = isSegmentActive(currentSegment);
+    isSegmentEnabled.value = active;
+    if (active) {
+      lastValidSegment.value = String(currentSegment);
+    } else if (!isSegmentActive(lastValidSegment.value)) {
+      lastValidSegment.value = defaultGlobalSegment;
+    }
+  },
+  { immediate: true },
+);
+
+const segmentEnabled = computed<boolean>({
+  get(): boolean {
+    return isSegmentEnabled.value;
+  },
+  set(val: boolean) {
+    isSegmentEnabled.value = val;
+    if (!config.value?.recorder) return;
+    if (val) {
+      const target = isSegmentActive(lastValidSegment.value)
+        ? lastValidSegment.value
+        : defaultGlobalSegment;
+      config.value.recorder.segment = target;
+    } else {
+      if (isSegmentActive(config.value.recorder.segment)) {
+        lastValidSegment.value = String(config.value.recorder.segment);
+      }
+      config.value.recorder.segment = "0";
+    }
+  },
+});
 
 const ensureGlobalDouyinCookieConfig = () => {
   if (!config.value?.recorder?.douyin) {

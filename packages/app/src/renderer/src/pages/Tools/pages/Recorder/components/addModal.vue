@@ -129,11 +129,18 @@
                   tip="0为不分段，默认为时间分段，单位分钟。<br/>如果以B,KB,MB,GB结尾，会尝试使用文件大小分段，<b>不推荐在ffmpeg引擎中使用</b>"
                 ></Tip>
               </template>
-              <n-input
-                v-model:value="config.segment"
-                :disabled="globalFieldsObj.segment"
-                placeholder="请输入分段参数"
-              />
+              <div style="display: flex; gap: 10px; align-items: center; flex: 1">
+                <n-switch
+                  v-model:value="segmentEnabled"
+                  :disabled="globalFieldsObj.segment"
+                />
+                <span style="white-space: nowrap">启用分段</span>
+                <n-input
+                  v-model:value="displaySegment"
+                  :disabled="globalFieldsObj.segment || !segmentEnabled"
+                  placeholder="请输入分段参数"
+                />
+              </div>
               <n-checkbox v-model:checked="globalFieldsObj.segment" class="global-checkbox"
                 >全局</n-checkbox
               >
@@ -1017,6 +1024,83 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
 
 const recordConfig = cloneDeep(defaultRecordConfig);
 const config = ref(recordConfig);
+
+const defaultAnchorSegment = defaultRecordConfig.segment || "60";
+const ownSegment = ref<string>(
+  config.value?.segment !== undefined && config.value?.segment !== null
+    ? String(config.value.segment)
+    : "0",
+);
+const ownSegmentEnabled = ref<boolean>(isSegmentActive(config.value?.segment));
+const lastValidSegment = ref<string>(
+  isSegmentActive(config.value?.segment)
+    ? String(config.value.segment)
+    : defaultAnchorSegment,
+);
+
+const syncOwnSegmentFromConfig = () => {
+  const currentVal = config.value?.segment;
+  const active = isSegmentActive(currentVal);
+  ownSegment.value = currentVal !== undefined && currentVal !== null ? String(currentVal) : "0";
+  ownSegmentEnabled.value = active;
+  if (active) {
+    lastValidSegment.value = String(currentVal);
+  } else if (!isSegmentActive(lastValidSegment.value)) {
+    lastValidSegment.value = defaultAnchorSegment;
+  }
+};
+
+watch(
+  () => config.value?.segment,
+  (newVal) => {
+    if (isSegmentActive(newVal) && !globalFieldsObj.value.segment) {
+      lastValidSegment.value = String(newVal);
+    }
+  },
+);
+
+const segmentEnabled = computed<boolean>({
+  get(): boolean {
+    if (globalFieldsObj.value.segment) {
+      return isSegmentActive(appConfig.value?.recorder?.segment);
+    }
+    return ownSegmentEnabled.value;
+  },
+  set(val: boolean) {
+    if (globalFieldsObj.value.segment || !config.value) return;
+    ownSegmentEnabled.value = val;
+    if (val) {
+      const target = isSegmentActive(lastValidSegment.value)
+        ? lastValidSegment.value
+        : defaultAnchorSegment;
+      ownSegment.value = target;
+      config.value.segment = target;
+    } else {
+      if (isSegmentActive(config.value.segment)) {
+        lastValidSegment.value = String(config.value.segment);
+      }
+      ownSegment.value = "0";
+      config.value.segment = "0";
+    }
+  },
+});
+
+const displaySegment = computed<string>({
+  get(): string {
+    if (globalFieldsObj.value.segment) {
+      return String(appConfig.value?.recorder?.segment ?? "");
+    }
+    return ownSegment.value;
+  },
+  set(val: string) {
+    if (globalFieldsObj.value.segment || !config.value) return;
+    ownSegment.value = val;
+    config.value.segment = val;
+    if (isSegmentActive(val)) {
+      lastValidSegment.value = String(val);
+    }
+  },
+});
 const xhsRedId = computed({
   get: () => String(config.value.uid ?? "").split("-")[1] ?? "",
   set: (value: string) => {
@@ -1176,12 +1260,13 @@ const onChannelIdInputEnd = async () => {
       });
       return;
     }
-    initGlobalFields();
     // 直接使用后端返回的完整配置
     config.value = res;
     ensureDouyinCookieConfig();
     ensureDouyuCookieConfig();
     owner.value = res.remarks || "";
+    syncOwnSegmentFromConfig();
+    initGlobalFields();
   } finally {
     channelIdResolving.value = false;
   }
@@ -1236,6 +1321,7 @@ watch(showModal, async (val) => {
     if (props.id) {
       await getRecordSetting();
     }
+    syncOwnSegmentFromConfig();
     initGlobalFields();
   }
 });
@@ -1282,6 +1368,8 @@ watch(
     }
     if (val.segment) {
       config.value.segment = appConfig.value.recorder.segment;
+    } else {
+      config.value.segment = ownSegment.value;
     }
     if (val.uid) {
       if (config.value.providerId === "Bilibili") {
