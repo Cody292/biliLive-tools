@@ -5,6 +5,9 @@ export const DURATION_TOLERANCE_RATIO = 0.05;
 export const DURATION_TOLERANCE_MIN_SEC = 0.3;
 export const COMMAND_TIMEOUT_MS = 30_000;
 export const MEDIA_VALIDATE_TIMEOUT_MAX_MS = 8 * 60 * 60 * 1000;
+const FORMAL_MERGE_UNIT_BYTES = 4 * 1024 * 1024 * 1024;
+const FORMAL_MERGE_TIMEOUT_MIN_MS = 2 * 60 * 1000;
+const FORMAL_MERGE_TIMEOUT_MAX_MS = 30 * 60 * 1000;
 
 export type StreamFingerprint = {
   readonly formatName: string;
@@ -25,6 +28,15 @@ export function mediaValidateTimeoutMs(durationSec: number): number {
   return Math.min(
     MEDIA_VALIDATE_TIMEOUT_MAX_MS,
     Math.max(COMMAND_TIMEOUT_MS, durationMs + COMMAND_TIMEOUT_MS),
+  );
+}
+
+export function formalMergeTimeoutMs(totalBytes: number): number {
+  const bytes = Number.isFinite(totalBytes) && totalBytes > 0 ? totalBytes : 0;
+  const units = Math.ceil(bytes / FORMAL_MERGE_UNIT_BYTES);
+  return Math.min(
+    FORMAL_MERGE_TIMEOUT_MAX_MS,
+    Math.max(FORMAL_MERGE_TIMEOUT_MIN_MS, units * FORMAL_MERGE_TIMEOUT_MIN_MS),
   );
 }
 

@@ -25,6 +25,8 @@ import recordHistory from "./recordHistory.js";
 import { danmuService } from "../db/index.js";
 // import DanmuService from "../db/service/danmuService.js";
 import { getBinPath, readVideoMeta, transcode } from "../task/video.js";
+import { bindFfmpegCommandRunner, taskQueue } from "../task/core/index.js";
+import { runCommand } from "./fragmentMerge.js";
 import logger from "../utils/log.js";
 import {
   replaceExtName,
@@ -599,11 +601,17 @@ export async function createRecorderManager(appConfig: AppConfig) {
       sessionId,
     });
     const autoFragmentMergeEnabled = getEffectiveAutoFragmentMerge(recorderSetting);
+    const { ffmpegPath, ffprobePath } = getBinPath();
     void finalizeFragmentSession({
       sessionId,
       autoFragmentMerge: autoFragmentMergeEnabled,
-      ffmpegPath: getBinPath().ffmpegPath,
-      ffprobePath: getBinPath().ffprobePath,
+      ffmpegPath,
+      ffprobePath,
+      run: bindFfmpegCommandRunner(
+        { acquire: () => taskQueue.acquireFfmpegSlot() },
+        ffmpegPath,
+        runCommand,
+      ),
     })
       .then(async (result) => {
         await emitFragmentSessionResult({

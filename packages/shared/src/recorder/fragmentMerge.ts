@@ -10,6 +10,7 @@ import {
   decodeAll,
   durationTolerance,
   fingerprintsMatch,
+  formalMergeTimeoutMs,
   mediaValidateOptions,
   probe,
   runCommand,
@@ -23,6 +24,7 @@ export {
   DURATION_TOLERANCE_RATIO,
   MEDIA_VALIDATE_TIMEOUT_MAX_MS,
   durationTolerance,
+  formalMergeTimeoutMs,
   mediaValidateOptions,
   mediaValidateTimeoutMs,
   resolveCommandTimeoutMs,
@@ -174,6 +176,10 @@ async function mergeCopy(
     if (!first || fingerprints.some((item) => !fingerprintsMatch(first, item))) {
       return { kind: "rejected", reason: "mixed" };
     }
+    const totalBytes = (await Promise.all(files.map((file) => fs.stat(file)))).reduce(
+      (sum, stat) => sum + stat.size,
+      0,
+    );
     const parsed = path.parse(head);
     const output = path.join(parsed.dir, `${parsed.name}${parsed.ext}`);
     const archived = await archiveToOld(files, output);
@@ -187,7 +193,7 @@ async function mergeCopy(
       input.ffmpegPath,
       ["-f", "concat", "-safe", "0", "-i", listFile],
       tempFile,
-      mediaValidateOptions(expectedDuration),
+      { timeoutMs: formalMergeTimeoutMs(totalBytes) },
     );
     const ok = await validateOutput({
       run,
