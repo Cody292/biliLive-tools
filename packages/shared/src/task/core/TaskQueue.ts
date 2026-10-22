@@ -1,6 +1,7 @@
 import { TypedEmitter } from "tiny-typed-emitter";
 import { isBetweenTimeRange } from "../../utils/index.js";
 import { TaskType } from "../../enum.js";
+import { FFmpegProcessGate, parseFfmpegMaxNum, type FFmpegSlot } from "./FFmpegProcessGate.js";
 
 import type { Status } from "@biliLive-tools/types";
 import type { AppConfig } from "../../config.js";
@@ -13,6 +14,7 @@ import type { TaskEvents } from "./types.js";
 export class TaskQueue {
   appConfig: AppConfig;
   queue: AbstractTask[];
+  readonly ffmpegGate: FFmpegProcessGate;
   emitter = new TypedEmitter<TaskEvents>();
   on: TypedEmitter<TaskEvents>["on"];
   off: TypedEmitter<TaskEvents>["off"];
@@ -20,6 +22,10 @@ export class TaskQueue {
   constructor(appConfig: AppConfig) {
     this.queue = [];
     this.appConfig = appConfig;
+    this.ffmpegGate = new FFmpegProcessGate(() => this.readFfmpegMaxNum());
+    this.ffmpegGate.onAvailable = () => {
+      this.addTaskForLimit();
+    };
     this.on = this.emitter.on.bind(this.emitter);
     this.off = this.emitter.off.bind(this.emitter);
     this.on("task-end", () => {
@@ -34,6 +40,9 @@ export class TaskQueue {
     this.on("task-cancel", ({ autoStart }) => {
       if (autoStart) this.addTaskForLimit();
     });
+    this.appConfig.on("update", () => {
+      this.ffmpegGate.notifyConfigChanged();
+    });
 
     setInterval(() => {
       // @ts-ignore
@@ -43,12 +52,40 @@ export class TaskQueue {
     }, 1000 * 60);
   }
 
+  acquireFfmpegSlot(): Promise<FFmpegSlot> {
+    return this.ffmpegGate.acquire();
+  }
+
+  tryAcquireFfmpegSlot(): FFmpegSlot | undefined {
+    return this.ffmpegGate.tryAcquire();
+  }
+
+  releaseFfmpegSlot(slot: FFmpegSlot): void {
+    this.ffmpegGate.release(slot);
+  }
+
+  private readFfmpegMaxNum(): number {
+    try {
+      return parseFfmpegMaxNum(this.appConfig.getAll()?.task?.ffmpegMaxNum);
+    } catch (error) {
+      if (error instanceof Error) {
+        return -1;
+      }
+      throw error;
+    }
+  }
+
   /**
    * 运行任务，考虑任务限制和时间范围
    */
   runTask(task: AbstractTask): void {
+    if (task.type === TaskType.ffmpeg) {
+      if (isBetweenTimeRange(task.limitTime)) {
+        task.exec();
+      }
+      return;
+    }
     const typeMap: Record<string, string> = {
-      [TaskType.ffmpeg]: "ffmpegMaxNum",
       [TaskType.douyuDownload]: "douyuDownloadMaxNum",
       [TaskType.biliUpload]: "biliUploadMaxNum",
       [TaskType.biliDownload]: "biliDownloadMaxNum",
@@ -104,6 +141,7 @@ export class TaskQueue {
     }
 
     this.queue.push(task);
+    bindFfmpegGateIfPresent(task, this.ffmpegGate);
 
     if (autoRun) {
       task.exec();
@@ -246,7 +284,20 @@ export class TaskQueue {
   /**
    * 根据任务类型限制并发数
    */
+  private startPendingFfmpeg(): void {
+    const pending = this.filter({ type: TaskType.ffmpeg, status: "pending" }).filter((task) => {
+      return isBetweenTimeRange(task.limitTime);
+    });
+    for (const task of pending) {
+      task.exec();
+    }
+  }
+
   private taskLimit(maxNum: number, type: string): void {
+    if (type === TaskType.ffmpeg) {
+      this.startPendingFfmpeg();
+      return;
+    }
     const pendingFFmpegTask = this.filter({ type: type, status: "pending" }).filter((task) => {
       return isBetweenTimeRange(task.limitTime);
     });
@@ -286,4 +337,20 @@ export class TaskQueue {
     // 同步任务
     this.taskLimit(config?.task?.syncMaxNum ?? 3, TaskType.sync);
   };
+}
+
+function bindFfmpegGateIfPresent(task: AbstractTask, gate: FFmpegProcessGate): void {
+  if (!hasBindFfmpegGate(task)) {
+    return;
+  }
+  task.bindFfmpegGate(gate);
+}
+
+function hasBindFfmpegGate(
+  task: AbstractTask,
+): task is AbstractTask & { bindFfmpegGate: (gate: FFmpegProcessGate) => void } {
+  if (!("bindFfmpegGate" in task)) {
+    return false;
+  }
+  return typeof Reflect.get(task, "bindFfmpegGate") === "function";
 }

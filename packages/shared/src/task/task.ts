@@ -17,7 +17,8 @@ import { Pan123 } from "../sync/index.js";
 import { statisticsService } from "../db/index.js";
 import { SpeedCalculator } from "../utils/speedCalculator.js";
 import { appConfig } from "../config.js";
-import { AbstractTask } from "./core/index.js";
+import { AbstractTask, taskQueue } from "./core/index.js";
+import type { FFmpegProcessGate, FFmpegSlot } from "./core/index.js";
 
 import type { TaskEvents } from "./core/index.js";
 import type ffmpeg from "@renmu/fluent-ffmpeg";
@@ -138,6 +139,10 @@ export class FFmpegTask extends AbstractTask {
   command?: ffmpeg.FfmpegCommand;
   type = TaskType.ffmpeg;
   isInterrupted: boolean = false;
+  private ffmpegGate?: FFmpegProcessGate;
+  private ffmpegSlot?: FFmpegSlot;
+  private ffmpegProcess?: ffmpeg.FfmpegCommand["ffmpegProc"];
+  private ffmpegProcessCloseListenerAttached = false;
 
   constructor(
     command: ffmpeg.FfmpegCommand,
@@ -171,6 +176,10 @@ export class FFmpegTask extends AbstractTask {
       this.progress = 0;
       log.info(`task ${this.taskId} start, command: ${commandLine}`);
       this.status = "running";
+      if (command.ffmpegProc) {
+        this.ffmpegProcess = command.ffmpegProc;
+        this.attachFfmpegCloseListener();
+      }
 
       callback.onStart && callback.onStart();
       this.emitter.emit("task-start", { taskId: this.taskId });
@@ -229,12 +238,29 @@ export class FFmpegTask extends AbstractTask {
       this.emitter.emit("task-progress", { taskId: this.taskId });
     });
   }
+  bindFfmpegGate(gate: FFmpegProcessGate): void {
+    this.ffmpegGate = gate;
+  }
+
   exec() {
-    if (this.status !== "pending") console.warn("ffmpeg task is not pending when exec");
+    if (this.status !== "pending") {
+      console.warn("ffmpeg task is not pending when exec");
+      return;
+    }
     if (!this.command) return;
+    // 同步预约：exec 不能 await acquire()。未入队的 direct 调用在槽满时会保持 pending。
+    if (!this.reserveFfmpegSlot()) return;
 
     this.status = "running";
-    this.command.run();
+    let runReturned = false;
+    try {
+      this.command.run();
+      runReturned = true;
+    } finally {
+      if (!runReturned) {
+        this.releaseFfmpegSlotAfterProcessExit(true);
+      }
+    }
   }
   pause() {
     if (this.status !== "running") return;
@@ -268,12 +294,16 @@ export class FFmpegTask extends AbstractTask {
     if (isWin32) {
       getNtSuspend().resume(this.command.ffmpegProc.pid);
     }
-    // @ts-ignore
-    this.command.ffmpegProc.stdin.write("q");
-    log.warn(`task ${this.taskId} interrupted`);
-    this.isInterrupted = true;
-    this.status = "error";
-    return true;
+    try {
+      // @ts-ignore
+      this.command.ffmpegProc.stdin.write("q");
+      log.warn(`task ${this.taskId} interrupted`);
+      this.isInterrupted = true;
+      this.status = "error";
+      return true;
+    } finally {
+      this.releaseFfmpegSlotAfterProcessExit();
+    }
   }
   kill() {
     if (this.status === "completed" || this.status === "error" || this.status === "canceled")
@@ -282,20 +312,69 @@ export class FFmpegTask extends AbstractTask {
     if (isWin32) {
       getNtSuspend().resume(this.command.ffmpegProc.pid);
     }
-    this.command.kill("SIGKILL");
-    log.warn(`task ${this.taskId} killed`);
-    // 不需要额外触发error事件，因为ffmpeg会触发error事件，ffmpeg没有取消事件
-    this.status = "error";
-    return true;
+    try {
+      this.command.kill("SIGKILL");
+      log.warn(`task ${this.taskId} killed`);
+      // 不需要额外触发error事件，因为ffmpeg会触发error事件，ffmpeg没有取消事件
+      this.status = "error";
+      return true;
+    } finally {
+      this.releaseFfmpegSlotAfterProcessExit();
+    }
   }
 
   /**
    * 释放任务持有的 FfmpegCommand 及其监听器，同时保留任务历史信息。
    */
   releaseCommand() {
-    if (!this.command) return;
-    this.command.removeAllListeners();
-    this.command = undefined;
+    const process = this.ffmpegProcess ?? this.command?.ffmpegProc;
+    if (process) {
+      this.ffmpegProcess = process;
+    }
+    if (this.command) {
+      this.command.removeAllListeners();
+      this.command = undefined;
+    }
+    this.releaseFfmpegSlotAfterProcessExit(true);
+  }
+
+  private reserveFfmpegSlot(): boolean {
+    if (this.ffmpegSlot) return true;
+    const slot = this.ffmpegGate
+      ? this.ffmpegGate.tryAcquire()
+      : taskQueue.tryAcquireFfmpegSlot();
+    if (!slot) return false;
+    this.ffmpegSlot = slot;
+    return true;
+  }
+
+  private releaseFfmpegSlot(): void {
+    const slot = this.ffmpegSlot;
+    if (!slot) return;
+    this.ffmpegSlot = undefined;
+    slot.release();
+  }
+
+  private releaseFfmpegSlotAfterProcessExit(isTerminal = false): void {
+    const process = this.ffmpegProcess ?? this.command?.ffmpegProc;
+    if (!process) {
+      if (isTerminal) this.releaseFfmpegSlot();
+      return;
+    }
+    this.ffmpegProcess = process;
+    this.attachFfmpegCloseListener();
+  }
+
+  private attachFfmpegCloseListener(): void {
+    const process = this.ffmpegProcess;
+    if (!process) return;
+    if (this.ffmpegProcessCloseListenerAttached) return;
+    this.ffmpegProcessCloseListenerAttached = true;
+    process.once("close", () => {
+      this.ffmpegProcess = undefined;
+      this.ffmpegProcessCloseListenerAttached = false;
+      this.releaseFfmpegSlot();
+    });
   }
 }
 

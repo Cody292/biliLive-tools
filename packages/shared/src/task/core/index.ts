@@ -12,6 +12,17 @@ export { AbstractTask } from "./AbstractTask.js";
 // 导出任务队列
 export { TaskQueue } from "./TaskQueue.js";
 
+export {
+  FFmpegProcessGate,
+  bindFfmpegCommandRunner,
+  parseFfmpegMaxNum,
+} from "./FFmpegProcessGate.js";
+export type {
+  FFmpegSlot,
+  FfmpegCommandRunner,
+  FfmpegCommandRunOptions,
+} from "./FFmpegProcessGate.js";
+
 // 导出任务队列实例和辅助函数
 export {
   taskQueue,
