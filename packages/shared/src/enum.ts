@@ -879,6 +879,7 @@ export const defaultRecordConfig: Omit<Recorder, "id"> = {
   disableAutoCheck: false,
   sendToWebhook: false,
   autoFragmentMerge: false,
+  fragmentMergeOutputFormat: "source",
   noGlobalFollowFields: [],
   saveCover: false,
   convert2Mp4: false,

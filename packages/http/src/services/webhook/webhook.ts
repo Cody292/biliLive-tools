@@ -349,6 +349,7 @@ export class WebhookHandler {
     config: RoomConfig,
   ) {
     if (!config.convert2Mp4Option) return;
+    if (path.extname(options.filePath).toLowerCase() === ".mp4") return;
 
     try {
       const file = await this.transcode(

@@ -108,6 +108,7 @@ export type UpdateRecorderArgs = Pick<
   | "segment"
   | "sendToWebhook"
   | "autoFragmentMerge"
+  | "fragmentMergeOutputFormat"
   | "uid"
   | "saveCover"
   | "convert2Mp4"

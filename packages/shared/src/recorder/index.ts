@@ -605,6 +605,7 @@ export async function createRecorderManager(appConfig: AppConfig) {
     void finalizeFragmentSession({
       sessionId,
       autoFragmentMerge: autoFragmentMergeEnabled,
+      fragmentMergeOutputFormat: recorderSetting?.fragmentMergeOutputFormat,
       ffmpegPath,
       ffprobePath,
       run: bindFfmpegCommandRunner(

@@ -90,6 +90,19 @@
             </template>
             <n-switch v-model:value="config.autoFragmentMerge" />
           </n-form-item>
+          <n-form-item>
+            <template #label>
+              <Tip
+                text="合并输出格式"
+                tip="MP4 是无损转封装/stream-copy 目标，若片段流参数不兼容，后端仍保留源片段"
+              ></Tip>
+            </template>
+            <n-select
+              v-model:value="config.fragmentMergeOutputFormat"
+              :options="fragmentMergeOutputFormatOptions"
+              :disabled="!config.autoFragmentMerge"
+            />
+          </n-form-item>
 
           <h2>文件</h2>
           <template v-if="true">
@@ -953,6 +966,7 @@ import {
   douyinQualityOptions,
   douyuSourceOptions,
   videoFormatOptions,
+  fragmentMergeOutputFormatOptions,
   douyinStreamFormatOptions,
   huyaSourceOptions,
   recorderTypeOptions,
@@ -1023,6 +1037,9 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
 );
 
 const recordConfig = cloneDeep(defaultRecordConfig);
+if (!recordConfig.fragmentMergeOutputFormat) {
+  recordConfig.fragmentMergeOutputFormat = "source";
+}
 const config = ref(recordConfig);
 
 const defaultAnchorSegment = defaultRecordConfig.segment || "60";
@@ -1242,6 +1259,9 @@ const getRecordSetting = async () => {
   if (config.value.chargeLiveNotification === undefined) {
     config.value.chargeLiveNotification = true;
   }
+  if (!config.value.fragmentMergeOutputFormat) {
+    config.value.fragmentMergeOutputFormat = "source";
+  }
 };
 const isEdit = computed(() => !!props.id);
 
@@ -1264,6 +1284,9 @@ const onChannelIdInputEnd = async () => {
     config.value = res;
     ensureDouyinCookieConfig();
     ensureDouyuCookieConfig();
+    if (!config.value.fragmentMergeOutputFormat) {
+      config.value.fragmentMergeOutputFormat = "source";
+    }
     owner.value = res.remarks || "";
     syncOwnSegmentFromConfig();
     initGlobalFields();
@@ -1317,6 +1340,9 @@ watch(showModal, async (val) => {
     channelIdUrl.value = "";
     owner.value = "";
     config.value = recordConfig;
+    if (!config.value.fragmentMergeOutputFormat) {
+      config.value.fragmentMergeOutputFormat = "source";
+    }
 
     if (props.id) {
       await getRecordSetting();

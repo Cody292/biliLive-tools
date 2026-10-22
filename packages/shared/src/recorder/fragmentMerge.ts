@@ -1,6 +1,8 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 
+import type { FragmentMergeOutputFormat } from "@biliLive-tools/types";
+
 import { getUnusedFileName, uuid } from "../utils/index.js";
 import logger from "../utils/log.js";
 import { archiveToOld, rollbackMoves, type FileMove } from "./fragmentMergeArchive.js";
@@ -43,6 +45,7 @@ type ProcessFragmentsInput = {
   readonly ffmpegPath: string;
   readonly ffprobePath: string;
   readonly run?: CommandRunner;
+  readonly fragmentMergeOutputFormat?: FragmentMergeOutputFormat;
 };
 
 const COPY_EXTS = new Set([".mp4", ".ts", ".m4s", ".flv"]);
@@ -181,7 +184,8 @@ async function mergeCopy(
       0,
     );
     const parsed = path.parse(head);
-    const output = path.join(parsed.dir, `${parsed.name}${parsed.ext}`);
+    const outputExt = input.fragmentMergeOutputFormat === "mp4" ? ".mp4" : parsed.ext;
+    const output = path.join(parsed.dir, `${parsed.name}${outputExt}`);
     const archived = await archiveToOld(files, output);
     moves = archived.moves;
     tempFile = tempSibling(output);
@@ -267,7 +271,6 @@ export async function processFragments(
   if (uniqueExts.size !== 1 || ![...uniqueExts].every((ext) => COPY_EXTS.has(ext))) {
     return { kind: "rejected", reason: "mixed" };
   }
-  if (uniqueExts.has(".flv")) return { kind: "noop", reason: "capability-skip" };
   if (uniqueExts.has(".m4s")) {
     const readable = await Promise.all(files.map((file) => isReadable(input, run, file)));
     if (readable.some((ok) => !ok)) return { kind: "noop", reason: "capability-skip" };

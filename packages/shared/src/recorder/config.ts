@@ -282,6 +282,8 @@ export default class RecorderConfig {
       saveSCDanma: getValue("saveSCDanma") ?? true,
       saveCover: getValue("saveCover") ?? false,
       convert2Mp4: getValue("convert2Mp4") ?? false,
+      fragmentMergeOutputFormat:
+        setting.fragmentMergeOutputFormat === "mp4" ? "mp4" : "source",
       segment: getValue("segment") ?? 90,
       uid: uid,
       qualityRetry: getValue("qualityRetry") ?? 0,

@@ -357,6 +357,17 @@ export const videoFormatOptions = [
   },
 ];
 
+export const fragmentMergeOutputFormatOptions = [
+  {
+    value: "source",
+    label: "跟随源格式",
+  },
+  {
+    value: "mp4",
+    label: "MP4",
+  },
+];
+
 // 录制器
 export const recorderTypeOptions = [
   {

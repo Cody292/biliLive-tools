@@ -1,3 +1,5 @@
+import type { FragmentMergeOutputFormat } from "@biliLive-tools/types";
+
 import { CommandTimeoutError, processFragments, type CommandRunner } from "./fragmentMerge.js";
 import {
   attachFragmentPairing,
@@ -78,6 +80,7 @@ export function finalizeFragmentSession(input: {
   readonly sessionId?: string;
   readonly recordHandleId?: string;
   readonly autoFragmentMerge?: boolean;
+  readonly fragmentMergeOutputFormat?: FragmentMergeOutputFormat;
   readonly ffmpegPath: string;
   readonly ffprobePath: string;
   readonly run?: CommandRunner;
@@ -120,6 +123,7 @@ export function finalizeFragmentSession(input: {
           ffmpegPath: input.ffmpegPath,
           ffprobePath: input.ffprobePath,
           run: input.run,
+          fragmentMergeOutputFormat: input.fragmentMergeOutputFormat,
         }),
         files,
         openMeta,

@@ -44,6 +44,7 @@ export const recorderNoGlobalFollowFields: Array<
     | "disableAutoCheck"
     | "sendToWebhook"
     | "autoFragmentMerge"
+    | "fragmentMergeOutputFormat"
     | "streamPriorities"
     | "sourcePriorities"
     | "noGlobalFollowFields"
@@ -83,6 +84,8 @@ export const recorderNoGlobalFollowFields: Array<
   "doubleScreen",
   "useServerTimestamp",
 ];
+
+export type FragmentMergeOutputFormat = "source" | "mp4";
 
 export type DouyinCookieMode = "off" | "always" | "gift_save_only" | "only-save-gift";
 export type DouyuCookieMode = "off" | "always";
@@ -591,6 +594,8 @@ export interface Recorder {
   sendToWebhook?: boolean;
   /** 录制结束后将同场次碎片合并为本地独立成片；按主播独立，默认关闭，不跟随全局配置 */
   autoFragmentMerge?: boolean;
+  /** 碎片合并输出格式：source 保持源容器，mp4 合并为 mp4；按主播独立，默认 source，不跟随全局配置 */
+  fragmentMergeOutputFormat?: FragmentMergeOutputFormat;
   /** 画质 */
   quality:
     | "lowest"
