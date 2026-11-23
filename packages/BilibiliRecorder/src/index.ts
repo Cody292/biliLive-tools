@@ -98,8 +98,6 @@ const ffmpegOutputOptions: string[] = [];
 const ffmpegInputOptions: string[] = [
   "-rw_timeout",
   "10000000",
-  "-timeout",
-  "10000000",
   "-headers",
   "Referer:https://live.bilibili.com/",
 ];
