@@ -31,6 +31,7 @@ catalogs:
 overrides:
   node-abi: 3.98.0
   webworkify-webpack: https://codeload.github.com/xqq/webworkify-webpack/tar.gz/24d1e719b4a6cac37a518b2bb10fe124527ef4ef
+  '@renmu/fluent-ffmpeg>which': 1.1.2
   tiny-bilibili-ws: 1.1.1
 
 patchedDependencies:
@@ -6267,8 +6268,8 @@ packages:
   when-exit@2.1.5:
     resolution: {integrity: sha512-VGkKJ564kzt6Ms1dbgPP/yuIoQCrsFAnRbptpC5wOEsDaNsbCB2bnfnaA8i/vRs5tjUSEOtIuvl9/MyVsvQZCg==}
 
-  which@1.1.1:
-    resolution: {integrity: sha512-FgjRix4uC5hAbzCmYO/D0C/6riWHLNWqI2k+9s3P9469R3monfE+/mEyFufdAhhp9pJiw4+Gr4TUI9VEWMPcdA==}
+  which@1.1.2:
+    resolution: {integrity: sha512-zRdeMPig0qJ6gzMDjF0kwe7o3BkTuXIcM4Ir4DfjxxLr+D5h5eymaVpryA2RAAn8YFcNvryeytE1aLISVKosxw==}
     hasBin: true
 
   which@1.2.9:
@@ -7042,7 +7043,7 @@ snapshots:
   '@renmu/fluent-ffmpeg@2.3.3':
     dependencies:
       async: 0.2.10
-      which: 1.1.1
+      which: 1.1.2
 
   '@renmu/m3u8-downloader@0.5.2':
     dependencies:
@@ -12254,7 +12255,7 @@ snapshots:
 
   when-exit@2.1.5: {}
 
-  which@1.1.1:
+  which@1.1.2:
     dependencies:
       is-absolute: 0.1.7
 
