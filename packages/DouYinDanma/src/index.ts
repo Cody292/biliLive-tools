@@ -116,43 +116,51 @@ class DouYinDanmaClient extends TypedEmitter<Events> {
   }
 
   async connect() {
-    const url = await this.getWsInfo(this.roomId);
-    if (!url) {
-      this.emit("error", new Error("获取抖音弹幕签名失败"));
+    try {
+      const url = await this.getWsInfo(this.roomId);
+      if (!url) {
+        throw new Error("获取抖音弹幕签名失败");
+      }
+      this.emit("init", url);
+      const cookies = this.cookie || (await getCookie());
+      this.ws = new WebSocket(url, {
+        headers: {
+          Cookie: cookies,
+          "User-Agent": this.userAgent,
+          Origin: "https://live.douyin.com",
+          Referer: "https://live.douyin.com/",
+        },
+      });
+
+      this.ws.on("open", () => {
+        this.reconnectAttempts = 0;
+        this.emit("open");
+        this.startHeartbeat();
+        this.startTimeoutCheck();
+      });
+
+      this.ws.on("message", (data) => {
+        this.lastMessageTime = Date.now();
+        this.decode(data as Buffer);
+      });
+
+      this.ws.on("close", () => {
+        this.emit("close");
+        this.reconnect();
+      });
+
+      this.ws.on("error", (error) => {
+        this.emit("error", error);
+        this.reconnect();
+      });
+    } catch (err) {
+      // getWsInfo/getCookie 等前置步骤失败时，必须让错误可见并继续重试：
+      // 否则 WebSocket 不会创建，没有任何事件能触发下一次 reconnect，
+      // 弹幕客户端将静默死亡直到录制结束
+      this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      this.reconnect();
       return;
     }
-    this.emit("init", url);
-    const cookies = this.cookie || (await getCookie());
-    this.ws = new WebSocket(url, {
-      headers: {
-        Cookie: cookies,
-        "User-Agent": this.userAgent,
-        Origin: "https://live.douyin.com",
-        Referer: "https://live.douyin.com/",
-      },
-    });
-
-    this.ws.on("open", () => {
-      this.reconnectAttempts = 0;
-      this.emit("open");
-      this.startHeartbeat();
-      this.startTimeoutCheck();
-    });
-
-    this.ws.on("message", (data) => {
-      this.lastMessageTime = Date.now();
-      this.decode(data as Buffer);
-    });
-
-    this.ws.on("close", () => {
-      this.emit("close");
-      this.reconnect();
-    });
-
-    this.ws.on("error", (error) => {
-      this.emit("error", error);
-      this.reconnect();
-    });
   }
 
   send(data: any) {

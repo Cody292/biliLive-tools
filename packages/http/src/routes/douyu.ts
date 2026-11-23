@@ -52,7 +52,7 @@ router.get("/login/poll", async (ctx) => {
     writeDouyuUser(result.user);
     ensureDouyuAccountInPool(result.user.uid);
     sessions.delete(id);
-    ctx.body = { status: "completed" };
+    ctx.body = { status: "completed", uid: result.user.uid };
     return;
   }
   if (result.status === "error") sessions.delete(id);

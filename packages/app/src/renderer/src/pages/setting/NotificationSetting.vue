@@ -141,9 +141,9 @@
       <n-form-item>
         <template #label>
           <Tip
-            tip="项目：https://github.com/CaoMeiYouRen/push-all-in-cloud，包含/push"
+              tip="项目：https://github.com/CaoMeiYouRen/push-all-in-cloud，包含/push"
             text="服务器地址"
-          ></Tip>
+            ></Tip>
         </template>
         <n-input
           v-model:value="config.notification.setting.allInOne.server"
@@ -331,7 +331,9 @@
 import { configApi } from "@renderer/apis";
 import { useBreakpoints } from "@renderer/hooks";
 import { cloneDeep } from "lodash-es";
-import { NotificationType } from "@biliLive-tools/shared/enum.js";
+import { NotificationType as _NotificationType } from "@biliLive-tools/shared/enum.js";
+
+const NotificationType = shallowRef(_NotificationType);
 
 import type { AppConfig } from "@biliLive-tools/types";
 
@@ -344,13 +346,13 @@ const labelWidth = computed(() => {
 });
 
 const typeOptions = [
-  { value: NotificationType.system, label: "系统通知" },
-  { value: NotificationType.mail, label: "邮箱" },
-  { value: NotificationType.tg, label: "tg bot" },
-  { value: NotificationType.server, label: "server酱" },
-  { value: NotificationType.ntfy, label: "ntfy" },
-  { value: NotificationType.allInOne, label: "push all in cloud" },
-  { value: NotificationType.customHttp, label: "自定义HTTP" },
+  { value: _NotificationType.system, label: "系统通知" },
+  { value: _NotificationType.mail, label: "邮箱" },
+  { value: _NotificationType.tg, label: "tg bot" },
+  { value: _NotificationType.server, label: "server酱" },
+  { value: _NotificationType.ntfy, label: "ntfy" },
+  { value: _NotificationType.allInOne, label: "push all in cloud" },
+  { value: _NotificationType.customHttp, label: "自定义HTTP" },
 ];
 
 const notice = useNotification();

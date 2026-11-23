@@ -6,6 +6,8 @@ import { getCookie } from "../task/bili.js";
 import { readDouyuUser } from "./douyu.js";
 import { resolveDouyuCookieInjection } from "./accountPick.js";
 
+type AuthCache = Map<string, string | undefined>;
+
 // 定义独立配置类
 export default class RecorderConfig {
   appConfig: AppConfig;
@@ -18,7 +20,30 @@ export default class RecorderConfig {
     return setting.find((setting) => setting.id === id);
   }
 
-  public get(id: string):
+  private getAuth(providerId: "Bilibili" | "DouYu", uid: number, authCache: AuthCache) {
+    const key = `${providerId}:${uid}`;
+    if (authCache.has(key)) return authCache.get(key);
+
+    let auth: string | undefined;
+    try {
+      if (providerId === "Bilibili") {
+        auth = Object.entries(getCookie(uid))
+          .map(([key, value]) => `${key}=${value}`)
+          .join("; ");
+      } else {
+        auth = readDouyuUser(uid)?.loginCookies.main;
+      }
+    } catch (error) {
+      console.error(error);
+    }
+    authCache.set(key, auth);
+    return auth;
+  }
+
+  public get(
+    id: string,
+    opts: { authCache?: AuthCache } = {},
+  ):
     | (Recorder & {
         auth?: string;
         formatPriorities?: Array<"hls" | "flv">;
@@ -30,11 +55,12 @@ export default class RecorderConfig {
         }>;
       })
     | null {
-    const settings = this.appConfig.get("recorders");
-    const globalConfig = this.appConfig.get("recorder");
+    const settings = this.appConfig.get("recorders", true);
+    const globalConfig = this.appConfig.get("recorder", true);
 
     const setting = settings.find((item) => item.id === id);
     if (!setting) return null;
+    const { authCache = new Map<string, string | undefined>() } = opts;
 
     const noGlobalFollowFields = (setting.noGlobalFollowFields ?? []) as readonly string[];
     const settingRecord = setting as unknown as Record<string, unknown>;
@@ -55,6 +81,7 @@ export default class RecorderConfig {
         if (key === "douyuCookieMode") {
           return normalizeDouyuCookieMode(settingRecord[key]);
         }
+        if (key === "cookieMode") return setting.cookieMode;
         return settingRecord[key];
       } else {
         if (key === "uid") {
@@ -129,6 +156,10 @@ export default class RecorderConfig {
           if (setting.providerId === "DouYu") {
             return get(globalConfig, "douyu.accounts", []);
           }
+        } else if (key === "cookieMode") {
+          if (setting.providerId === "DouYin") {
+            return get(globalConfig, "douyin.cookieMode", "all");
+          }
         } else if (key === "doubleScreen") {
           if (setting.providerId === "DouYin") {
             return get(globalConfig, "douyin.doubleScreen");
@@ -192,30 +223,23 @@ export default class RecorderConfig {
     if (setting.providerId === "Bilibili") {
       uid = getValue("uid");
       if (uid) {
-        try {
-          const cookies = getCookie(Number(uid));
-          auth = Object.entries(cookies)
-            .map(([key, value]) => {
-              return `${key}=${value}`;
-            })
-            .join("; ");
-        } catch (error) {
-          console.error(error);
-        }
+        auth = this.getAuth("Bilibili", Number(uid), authCache);
       }
     } else if (setting.providerId === "DouYu") {
       const cookieMode = getValue("douyuCookieMode") ?? "off";
       const accounts = getValue("douyuCookieAccounts") ?? [];
       uid = getValue("uid");
+      if (uid) {
+        auth = this.getAuth("DouYu", Number(uid), authCache);
+      }
       const injection = resolveDouyuCookieInjection({
         mode: cookieMode,
         accounts,
         readUser: readDouyuUser,
       });
-      auth = undefined;
       douyuAuthCandidates = injection.candidates;
     } else if (setting.providerId === "DouYin") {
-      auth = undefined;
+      auth = getValue("cookie");
       uid = setting?.uid;
     } else if (setting.providerId === "XHS") {
       auth = getValue("cookie");
@@ -280,6 +304,7 @@ export default class RecorderConfig {
       disableProvideCommentsWhenRecording: disableProvideCommentsWhenRecording,
       saveGiftDanma: getValue("saveGiftDanma") ?? false,
       saveSCDanma: getValue("saveSCDanma") ?? true,
+      saveDanmaStats2DB: getValue("saveDanmaStats2DB") ?? false,
       saveCover: getValue("saveCover") ?? false,
       convert2Mp4: getValue("convert2Mp4") ?? false,
       fragmentMergeOutputFormat:
@@ -291,6 +316,7 @@ export default class RecorderConfig {
       debugLevel: getValue("debugLevel") ?? "none",
       recorderType: getValue("recorderType") ?? "ffmpeg",
       auth: auth,
+      cookieMode: getValue("cookieMode") ?? "all",
       useM3U8Proxy: getValue("useM3U8Proxy") ?? false,
       segmentOnTitleChange: getValue("segmentOnTitleChange") ?? false,
       useServerTimestamp: getValue("useServerTimestamp") ?? true,
@@ -335,9 +361,16 @@ export default class RecorderConfig {
   }
   public list() {
     const recorders = this.appConfig.get("recorders");
+    const authCache: AuthCache = new Map();
+    for (const uid of Object.keys(this.appConfig.get("bilibiliUser", true) || {})) {
+      this.getAuth("Bilibili", Number(uid), authCache);
+    }
+    for (const uid of Object.keys(this.appConfig.get("douyuUser", true) || {})) {
+      this.getAuth("DouYu", Number(uid), authCache);
+    }
     return recorders
       .map((recorder) => {
-        return this.get(recorder.id);
+        return this.get(recorder.id, { authCache });
       })
       .filter((recorder) => recorder != null);
   }

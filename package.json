@@ -1,6 +1,6 @@
 {
   "name": "@biliLive-tools/root",
-  "version": "3.22.2",
+  "version": "4.2.0",
   "description": "B站直播录制处理工具",
   "author": "renmu123",
   "license": "GPL-3.0-only",
@@ -25,6 +25,7 @@
     "fs-extra": "^11.2.0",
     "jszip": "^3.10.1",
     "lodash-es": "^4.17.21",
+    "tiny-bilibili-ws": "1.1.1",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

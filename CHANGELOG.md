@@ -2,7 +2,91 @@
 
 ## 优化
 
+- 录制：观看直播中的弹幕配置支持持久化
+
+## 其他
+
+- 依赖升级：electron->45.4.1,better-sqlite3->13.2.0,font-ls->0.6.8
+
+# 4.2.0(2026.11.20)
+
+## 功能
+
+- 同步：新增夸克同步 [#606](https://github.com/renmu123/biliLive-tools/pull/606)
+- 录制：监控室模式 [#611](https://github.com/renmu123/biliLive-tools/pull/611)
+
+## 优化
+
+- 看板：优化剩余磁盘容量的UI显示
+- 优化资源管理器的记忆路径
+- 录制：“显示字段”中的标题也会对卡片模式生效
+- 录制：录制详情UI优化 [#612](https://github.com/renmu123/biliLive-tools/pull/612)
+- 录制：B站录制获取主播名增加额外fallback
+- 录制：web支持打开录制文件夹到文件浏览器
+
+## Bug修复
+
+- 录制：修复主播详情仅能显示第一个的bug [#604](https://github.com/renmu123/biliLive-tools/issues/604)
+- 修复部分配置项删除时点击取消仍会生效的bug
+- 修复录制部分选项不会实时生效的bug [#607](https://github.com/renmu123/biliLive-tools/pull/607)
+
+# 4.1.0(2026.11.8)
+
+## 功能
+
+- 录制：抖音支持“cookie模式”选项 [#592](https://github.com/renmu123/biliLive-tools/pull/592)
+- 录制：录制日历支持 [#602](https://github.com/renmu123/biliLive-tools/pull/602)
+
+## 优化
+
+- 账号：账号登录后提示设置录制账号
+- 优化客户端由于electron的[更新](https://github.com/electron/electron/pull/49868)导致文件打开路径无法被记住的情况
+- 录制：抖音弹幕连接优化 [#599](https://github.com/renmu123/biliLive-tools/pull/599)
+
+## Bug修复
+
+- 录制：修复B站礼物弹幕无法保存的bug [#593](https://github.com/renmu123/biliLive-tools/issues/593)
+- 优化客户端由于连接限制无法打开多个直播间页面的bug
+
+## 其他
+
+- `electron`更新至`44.9.3`
+
+# 4.0.0(2026.10.15)
+
+## 作者的话
+
+经过一年的时间，又要跨入下一个大版本了，上个大版本的任务完成了部分，下个大版本的方向仍然是不限于录制本身，关注一些录播后面的数据，录播错误的可观测性。
+
+这个版本于我个人方面又有点不同，最近一个月刚被离职，我已经绝赞当起了家里蹲（笑），离职给项目带来的变化就是Mac还回去没法维护了，也没什么打算给这个项目做什么商业化，大家感兴趣的可以打赏支持一下。
+
+## 功能
+
+- 客户端：新增“视图”菜单栏，支持前进，后退，新建窗口
+- 文件浏览器：支持批量删除 [#570](https://github.com/renmu123/biliLive-tools/pull/570)
+- Webhook：新增选项“无弹幕仍压制”，用于在不存在弹幕时仍应用ffmpeg预设 [#578](https://github.com/renmu123/biliLive-tools/pull/578)
+- B站上传：合集标题支持格式化 [#579](https://github.com/renmu123/biliLive-tools/pull/579)
+- 录制：新增保存“弹幕统计”到数据库，默认关闭
+
+## 优化
+
 - 录制：列表模式支持头像显示 [#501](https://github.com/renmu123/biliLive-tools/issues/501)
+- 部分工具页UI优化 [#569](https://github.com/renmu123/biliLive-tools/pull/569)
+- 录制：优化某些场景下的性能问题 [571](https://github.com/renmu123/biliLive-tools/pull/571)
+- UI：文件浏览器页面加入页面缓存
+- 合并：优化弹幕合并中的元数据相关内容，移除“保留首个视频的元数据”，默认开启 [#576](https://github.com/renmu123/biliLive-tools/pull/576)
+
+## Bug修复
+
+- 上传：修复前端分P标题部分文本被意外过滤的bug
+- 上传：修复切换预设时“定时发布”UI显示错误
+- 弹幕转换：修复添加“自定义函数”时，录播姬弹幕文件礼物数据出错的bug
+- 录制：修复某些情况下B站弹幕无法连接的bug
+
+## 其他
+
+- CI：npm 发布使用新信任发布
+- electron升级至44.7.0（MacOS不再支持系统通知），vite升级至8
 
 # 3.22.2(2026.10.03)
 

@@ -211,6 +211,15 @@
             </template>
             <n-switch v-model:value="config.recorder.useServerTimestamp" />
           </n-form-item>
+          <n-form-item v-if="!config.recorder.disableProvideCommentsWhenRecording">
+            <template #label>
+              <Tip
+                text="弹幕统计入库"
+                tip="录制结束后，将弹幕时间分布保存到数据库，供录制历史和主播详情展示"
+              ></Tip>
+            </template>
+            <n-switch v-model:value="config.recorder.saveDanmaStats2DB" />
+          </n-form-item>
         </n-tab-pane>
         <n-tab-pane class="tab-pane" name="bilibili" tab="B站" display-directive="show:lazy">
           <n-form-item>
@@ -224,6 +233,9 @@
               value-field="uid"
               clearable
             />
+            <n-button style="margin-left: 10px" @click="emit('login', 'bilibili')" type="primary"
+              >登录</n-button
+            >
           </n-form-item>
           <n-form-item>
             <template #label>
@@ -342,6 +354,25 @@
         <n-tab-pane class="tab-pane" name="douyu" tab="斗鱼" display-directive="show:lazy">
           <n-form-item>
             <template #label>
+              <Tip
+                text="账号"
+                tip="未选择账号时将以未登录状态请求斗鱼接口，请先在用户页登录斗鱼账号"
+              ></Tip>
+            </template>
+            <n-select
+              v-model:value="config.recorder.douyu.uid"
+              :options="douyuUserList"
+              label-field="name"
+              value-field="uid"
+              clearable
+              placeholder="请先在用户页登录斗鱼账号"
+            />
+            <n-button style="margin-left: 10px" @click="douyuLogin" type="primary"
+              >登录</n-button
+            >
+          </n-form-item>
+          <n-form-item>
+            <template #label>
               <Tip :text="textInfo.douyu.quality.text" :tip="textInfo.douyu.quality.tip"></Tip>
             </template>
             <n-select
@@ -399,7 +430,7 @@
               </div>
               <div
                 v-for="(account, index) in config.recorder.douyu.accounts"
-                :key="index"
+                :key="account.uid"
                 style="display: flex; gap: 10px; align-items: center"
               >
                 <n-select
@@ -684,6 +715,18 @@
           </n-form-item>
           <n-form-item>
             <template #label>
+              <Tip
+                :text="textInfo.douyin.cookieMode.text"
+                :tip="textInfo.douyin.cookieMode.tip"
+              ></Tip>
+            </template>
+            <n-select
+              v-model:value="config.recorder.douyin.cookieMode"
+              :options="douyinCookieScopeOptions"
+            />
+          </n-form-item>
+          <n-form-item>
+            <template #label>
               <Tip text="双屏直播流" tip="开启后如果是双屏直播，那么就使用拼接的流"></Tip>
             </template>
             <n-switch v-model:value="config.recorder.douyin.doubleScreen" />
@@ -934,7 +977,7 @@ import {
   biliQualityOptions,
   douyuQualityOptions,
   huyaQualityOptions,
-  textInfo,
+  textInfo as _textInfo,
   biliStreamFormatOptions,
   biliStreamCodecOptions,
   douyinQualityOptions,
@@ -945,8 +988,9 @@ import {
   recorderTypeOptions,
   recorderDebugLevelOptions,
   douyinApiTypeOptions,
-  huyaApiTypeOptions,
   douyinCookieModeOptions,
+  douyinCookieScopeOptions,
+  huyaApiTypeOptions,
   douyuStreamCodecOptions,
   douyuApiTypeOptions,
   tiktokApiTypeOptions,
@@ -964,11 +1008,14 @@ import {
 import { isSegmentActive } from "@biliLive-tools/shared/recorder/segmentPolicy.js";
 import type { AppConfig, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
 
+const textInfo = shallowRef(_textInfo);
+
 const config = defineModel<AppConfig>("data", {
   default: () => {},
 });
 const emit = defineEmits<{
-  requestSave: [];
+  (event: "requestSave"): void;
+  (event: "login", platform: "bilibili" | "douyu"): void;
 }>();
 
 const defaultGlobalSegment = "90";
@@ -1087,6 +1134,19 @@ const addGlobalDouyuAccount = () => {
   }
 };
 
+const douyuLogin = async () => {
+  const [status] = await confirm.warning({
+    title: "斗鱼登录提示",
+    content: [
+      "Cookie 会用于斗鱼录制相关请求，建议使用小号。",
+      "程序请求与浏览器正常使用的请求不完全一致，继续即表示你了解并愿意承担账号风险。",
+    ].join("\n"),
+    positiveText: "继续登录",
+    negativeText: "取消",
+  });
+  if (status) emit("login", "douyu");
+};
+
 const removeGlobalDouyuAccount = (index: number) => {
   ensureGlobalDouyuCookieConfig();
   if (config.value?.recorder?.douyu?.accounts) {
@@ -1113,7 +1173,6 @@ const labelWidth = computed(() => {
 const { userList } = storeToRefs(useUserInfoStore());
 const { userList: douyuUserList } = storeToRefs(useDouyuUserStore());
 const isWeb = computed(() => window.isWeb);
-
 const selectFolder = async () => {
   let file: string | undefined = await showDirectoryDialog({
     defaultPath: config.value.recorder.savePath,
@@ -1356,6 +1415,7 @@ const handleDouyinLoginSuccess = async (cookie: string) => {
   }
   emit("requestSave");
 };
+
 </script>
 
 <style scoped lang="less">

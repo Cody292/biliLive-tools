@@ -361,6 +361,27 @@ async function convert2Mp4(videoFile: string): Promise<string> {
   });
 }
 
+/** RecorderConfig.get() 解析后的完整配置，含 formatPriorities、auth 等派生字段 */
+type ResolvedRecorderConfig = NonNullable<ReturnType<RecorderConfig["get"]>>;
+
+/** 运行时数据与身份字段不属于配置，热更新写回实例时必须排除 */
+const RUNTIME_RECORDER_FIELDS = [
+  "id",
+  "channelId",
+  "providerId",
+  "extra",
+  "cache",
+  "recordHandle",
+  "liveInfo",
+  "state",
+  "availableStreams",
+  "availableSources",
+  "usedStream",
+  "usedSource",
+  "timeline",
+  "appendTimeline",
+] as const;
+
 export async function createRecorderManager(appConfig: AppConfig) {
   const segmentMergeWarningKeys = new Set<string>();
   const getEffectiveAutoFragmentMerge = (data: RecorderConfigType | null | undefined): boolean => {
@@ -389,19 +410,20 @@ export async function createRecorderManager(appConfig: AppConfig) {
   };
 
   /**
-   * 更新录制器
-   * @param args - 更新参数
+   * 把解析后的配置写回录制器实例。
+   * 调用方应传入 RecorderConfig.get()/list() 的结果，不要传请求原始参数，
+   * 否则 formatPriorities、auth、sourcePriorities 等派生字段不会被重算。
+   * @param args - 解析后的完整配置
    * @returns 更新后的录制器
    */
   async function updateRecorder(
     recorder: Recorder,
-    args: Omit<RecorderConfigType, "channelId" | "providerId">,
+    args: ResolvedRecorderConfig | Omit<RecorderConfigType, "channelId" | "providerId">,
   ) {
+    if (args == null) return recorder;
     const cloneArgs = cloneDeep(args);
-    // 不更新extra字段，可能包含运行时数据
-    // @ts-ignore
-    delete cloneArgs.extra;
-    Object.assign(recorder, { ...omit(cloneArgs, ["id"]) });
+    // extra 可能包含运行时数据（如 lastRecordTime），连同其它运行时字段一起排除
+    Object.assign(recorder, omit(cloneArgs, [...RUNTIME_RECORDER_FIELDS]));
     return recorder;
   }
 
@@ -807,7 +829,7 @@ export async function createRecorderManager(appConfig: AppConfig) {
         },
       );
 
-      if (stats) {
+      if (data?.saveDanmaStats2DB && stats) {
         recordHistory.upadteLive(
           {
             video_file: filename,
@@ -816,6 +838,7 @@ export async function createRecorderManager(appConfig: AppConfig) {
           {
             danma_num: stats.danmaNum,
             interact_num: stats.uniqMember,
+            danma_stats_json: JSON.stringify(stats.danmaStats),
           },
         );
       } else if (xmlFile && (await fs.pathExists(xmlFile))) {
@@ -948,7 +971,9 @@ export async function createRecorderManager(appConfig: AppConfig) {
     }
   });
 
-  appConfig.on("update", () => {
+  appConfig.on("update", (_newVal, _oldVal, key) => {
+    // @ts-ignore
+    if (["tool", "recorders"].includes(key)) return;
     const { ffmpegPath, mesioPath, bililiveRecorderPath } = getBinPath();
     setFFMPEGPath(ffmpegPath);
     setMesioPath(mesioPath);
@@ -992,12 +1017,12 @@ export async function createRecorderManager(appConfig: AppConfig) {
     manager,
     config: recorderConfig,
     addRecorder: async (recorder: RecorderConfigType) => {
-      const recorders = recorderConfig.list();
+      const recorders = appConfig.get("recorders");
       if (
-        recorders.findIndex(
+        recorders.some(
           (item) =>
             item.channelId === recorder.channelId && item.providerId === recorder.providerId,
-        ) !== -1
+        )
       ) {
         return null;
       }
@@ -1022,9 +1047,17 @@ export async function createRecorderManager(appConfig: AppConfig) {
       const { id } = args;
       const recorder = manager.recorders.find((item) => item.id === id);
       if (recorder == null) return null;
+      // 先写盘：Config.set() 会刷新 appConfig.data，而 get() 以 withCache 读内存，
+      // 顺序反了会读到旧的 noGlobalFollowFields 与旧配置值。
       recorderConfig.update(args);
 
-      return updateRecorder(recorder, args);
+      // 与新增 / 启动加载 / 全局配置更新保持一致，重新解析后再写回实例。
+      // get() 负责合并全局配置并重算派生字段（formatPriorities、auth、sourcePriorities、uid 等），
+      // 直接把请求参数写回实例会漏掉这些字段，导致编辑后必须重启或重新添加直播间才生效。
+      const resolved = recorderConfig.get(id);
+      if (resolved == null) return null;
+
+      return updateRecorder(recorder, resolved);
     },
     resolveChannel: async (url: string, options?: ResolveChannelOptions) => {
       for (const provider of manager.providers) {

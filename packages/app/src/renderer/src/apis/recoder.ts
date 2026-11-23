@@ -21,6 +21,11 @@ const get = async (id: string): Promise<Recorder> => {
   return res.data.payload;
 };
 
+const getRecorderInfo = async (id: string): Promise<RecorderAPI["getRecorderInfo"]["Resp"]> => {
+  const res = await request.get(`/recorder/${id}/info`);
+  return res.data.payload;
+};
+
 /** 获取供播放器使用的直播流地址。 */
 const getStreamUrl = async (
   id: string,
@@ -132,9 +137,17 @@ const queryStreamerDetail = async (
   return res.data.payload;
 };
 
+const queryRecordCalendar = async (
+  params: RecorderAPI["queryRecordCalendar"]["Args"],
+): Promise<RecorderAPI["queryRecordCalendar"]["Resp"]> => {
+  const res = await request.get(`/recorder/calendar`, { params });
+  return res.data.payload;
+};
+
 const recoder = {
   infoList,
   get,
+  getRecorderInfo,
   getStreamUrl,
   add,
   remove,
@@ -150,6 +163,7 @@ const recoder = {
   cut,
   getRecentRecordFolder,
   queryStreamerDetail,
+  queryRecordCalendar,
 };
 
 export default recoder;

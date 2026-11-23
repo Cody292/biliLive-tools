@@ -163,6 +163,7 @@ function createRecorder(opts: RecorderCreateOpts): Recorder {
     availableSources: [],
     qualityRetry: opts.qualityRetry ?? 0,
     useServerTimestamp: opts.useServerTimestamp ?? true,
+    cookieMode: opts.cookieMode ?? "all",
     state: "idle",
     cache: null as any,
     appendTimeline: null as any,
@@ -179,6 +180,7 @@ function createRecorder(opts: RecorderCreateOpts): Recorder {
     async getLiveInfo() {
       const channelId = this.channelId;
       const info = await getInfo(channelId, {
+        auth: this.cookieMode === "danma" ? undefined : this.auth,
         uid: this.uid,
       });
       return {
@@ -193,6 +195,7 @@ function createRecorder(opts: RecorderCreateOpts): Recorder {
         streamPriorities: this.streamPriorities,
         sourcePriorities: this.sourcePriorities,
         strictQuality: false,
+        auth: this.cookieMode === "danma" ? undefined : this.auth,
         formatPriorities: this.formatPriorities,
         doubleScreen: this.doubleScreen,
         api: this.api as APIType,
@@ -230,10 +233,11 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   if (this.recordHandle != null) {
     const shouldStop = await utils.checkTitleKeywordsWhileRecording(
       this,
-      isManualStart,
-      (channelId) =>
-        getInfo(channelId, {
-          api: this.api as APIType,
+        isManualStart,
+        (channelId) =>
+          getInfo(channelId, {
+            auth: this.cookieMode === "danma" ? undefined : this.auth,
+            api: this.api as APIType,
           uid: this.uid,
         }),
     );
@@ -249,6 +253,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
   let isLiveRadio = false;
   try {
     const liveInfo = await getInfo(this.channelId, {
+      auth: this.cookieMode === "danma" ? undefined : this.auth,
       api: this.api as APIType,
       uid: this.uid,
     });
@@ -302,6 +307,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
       streamPriorities: this.streamPriorities,
       sourcePriorities: this.sourcePriorities,
       strictQuality: strictQuality,
+      auth: this.cookieMode === "danma" ? undefined : this.auth,
       formatPriorities: this.formatPriorities,
       doubleScreen: this.doubleScreen,
       api: this.api as APIType,
@@ -340,7 +346,9 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
 
   const cookieMode = this.douyinCookieMode ?? "always";
   const shouldApplyCookie =
-    cookieMode !== "off" && this.disableProvideCommentsWhenRecording !== true;
+    cookieMode !== "off" &&
+    this.cookieMode !== "stream" &&
+    this.disableProvideCommentsWhenRecording !== true;
   const authDouyinCookie = normalizeDouyinCookie(this.auth);
   /**
    * §9.5：选号/恢复每次从权威源 `this.douyinCookieAccounts` 重算下标。
@@ -634,6 +642,7 @@ const checkLiveStatusAndRecord: Recorder["checkLiveStatusAndRecord"] = async fun
     onEnd,
     async () => {
       const info = await getInfo(this.channelId, {
+        auth: this.cookieMode === "danma" ? undefined : this.auth,
       });
       return info;
     },

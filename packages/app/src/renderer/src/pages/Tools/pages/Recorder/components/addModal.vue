@@ -400,16 +400,14 @@
                 <Tip text="账号池" tip="引用用户页已登录的斗鱼账号，启用项参与运行时选择"></Tip>
               </template>
               <div style="display: flex; width: 100%; flex-direction: column; gap: 10px">
-                <div style="display: flex; gap: 10px">
-                  <n-button
-                    type="primary"
-                    ghost
-                    style="width: fit-content"
-                    @click="addDouyuCookieAccount"
-                    :disabled="globalFieldsObj.douyuCookieAccounts"
-                    >新增账号</n-button
-                  >
-                </div>
+                <n-button
+                  type="primary"
+                  ghost
+                  style="width: fit-content"
+                  @click="addDouyuCookieAccount"
+                  :disabled="globalFieldsObj.douyuCookieAccounts"
+                  >新增账号</n-button
+                >
                 <div
                   v-for="(account, index) in config.douyuCookieAccounts"
                   :key="index"
@@ -590,7 +588,10 @@
             </n-form-item>
             <n-form-item>
               <template #label>
-                <Tip text="Cookie模式" tip="关闭时不注入 Cookie；启用时录制中持续注入 Cookie，旧版仅保存礼物配置会自动按启用处理。使用 mobile 接口时 Cookie 不会被应用。"></Tip>
+                <Tip
+                  text="Cookie模式"
+                  tip="关闭时不注入 Cookie；启用时录制中持续注入 Cookie，旧版仅保存礼物配置会自动按启用处理。使用 mobile 接口时 Cookie 不会被应用。"
+                ></Tip>
               </template>
               <n-select
                 v-model:value="config.douyinCookieMode"
@@ -643,6 +644,22 @@
               <n-checkbox
                 v-model:checked="globalFieldsObj.douyinCookieAccounts"
                 class="global-checkbox"
+                >全局</n-checkbox
+              >
+            </n-form-item>
+            <n-form-item>
+              <template #label>
+                <Tip
+                  :text="textInfo.douyin.cookieMode.text"
+                  :tip="textInfo.douyin.cookieMode.tip"
+                ></Tip>
+              </template>
+              <n-select
+                v-model:value="config.cookieMode"
+                :options="douyinCookieScopeOptions"
+                :disabled="globalFieldsObj.cookieMode"
+              />
+              <n-checkbox v-model:checked="globalFieldsObj.cookieMode" class="global-checkbox"
                 >全局</n-checkbox
               >
             </n-form-item>
@@ -938,6 +955,23 @@
                 >全局</n-checkbox
               >
             </n-form-item>
+            <n-form-item v-if="!config.disableProvideCommentsWhenRecording">
+              <template #label>
+                <Tip
+                  text="弹幕统计入库"
+                  tip="录制结束后，将弹幕时间分布保存到数据库，供录制历史和主播详情展示"
+                ></Tip>
+              </template>
+              <n-switch
+                v-model:value="config.saveDanmaStats2DB"
+                :disabled="globalFieldsObj.saveDanmaStats2DB"
+              />
+              <n-checkbox
+                v-model:checked="globalFieldsObj.saveDanmaStats2DB"
+                class="global-checkbox"
+                >全局</n-checkbox
+              >
+            </n-form-item>
           </template>
         </template>
       </n-form>
@@ -960,7 +994,7 @@ import {
   biliQualityOptions,
   douyuQualityOptions,
   biliStreamFormatOptions,
-  textInfo,
+  textInfo as _textInfo,
   biliStreamCodecOptions,
   huyaQualityOptions,
   douyinQualityOptions,
@@ -972,8 +1006,9 @@ import {
   recorderTypeOptions,
   recorderDebugLevelOptions,
   douyinApiTypeOptions,
-  huyaApiTypeOptions,
   douyinCookieModeOptions,
+  douyinCookieScopeOptions,
+  huyaApiTypeOptions,
   douyuStreamCodecOptions,
   douyuApiTypeOptions,
   tiktokApiTypeOptions,
@@ -985,6 +1020,8 @@ import { isSegmentActive } from "@biliLive-tools/shared/recorder/segmentPolicy.j
 import { cloneDeep } from "lodash-es";
 
 import type { Recorder, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
+
+const textInfo = shallowRef(_textInfo);
 
 interface Props {
   id?: string;
@@ -1010,6 +1047,7 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
     disableProvideCommentsWhenRecording: true,
     saveGiftDanma: true,
     saveSCDanma: true,
+    saveDanmaStats2DB: true,
     segment: true,
     uid: true,
     saveCover: true,
@@ -1028,6 +1066,7 @@ const globalFieldsObj = ref<Record<NonNullable<Recorder["noGlobalFollowFields"]>
     douyinCookieAccounts: true,
     douyuCookieMode: true,
     douyuCookieAccounts: true,
+    cookieMode: true,
     proxy: true,
     doubleScreen: true,
     useServerTimestamp: true,
@@ -1249,6 +1288,7 @@ const getRecordSetting = async () => {
   config.value = await recoderApi.get(props.id);
   ensureDouyinCookieConfig();
   ensureDouyuCookieConfig();
+  config.value.cookieMode ??= "all";
   if (!config.value.handleTime) {
     config.value.handleTime = [null, null];
   }
@@ -1303,6 +1343,7 @@ const initGlobalFields = () => {
     ),
     saveGiftDanma: !(config.value?.noGlobalFollowFields ?? []).includes("saveGiftDanma"),
     saveSCDanma: !(config.value?.noGlobalFollowFields ?? []).includes("saveSCDanma"),
+    saveDanmaStats2DB: !(config.value?.noGlobalFollowFields ?? []).includes("saveDanmaStats2DB"),
     segment: !(config.value?.noGlobalFollowFields ?? []).includes("segment"),
     uid: !(config.value?.noGlobalFollowFields ?? []).includes("uid"),
     saveCover: !(config.value?.noGlobalFollowFields ?? []).includes("saveCover"),
@@ -1327,6 +1368,7 @@ const initGlobalFields = () => {
     douyuCookieAccounts: !(config.value?.noGlobalFollowFields ?? []).includes(
       "douyuCookieAccounts",
     ),
+    cookieMode: !(config.value?.noGlobalFollowFields ?? []).includes("cookieMode"),
     proxy: !(config.value?.noGlobalFollowFields ?? []).includes("proxy"),
     doubleScreen: !(config.value?.noGlobalFollowFields ?? []).includes("doubleScreen"),
     useServerTimestamp: !(config.value?.noGlobalFollowFields ?? []).includes("useServerTimestamp"),
@@ -1392,6 +1434,9 @@ watch(
     if (val.saveSCDanma) {
       config.value.saveSCDanma = appConfig.value.recorder.saveSCDanma;
     }
+    if (val.saveDanmaStats2DB) {
+      config.value.saveDanmaStats2DB = appConfig.value.recorder.saveDanmaStats2DB;
+    }
     if (val.segment) {
       config.value.segment = appConfig.value.recorder.segment;
     } else {
@@ -1447,6 +1492,9 @@ watch(
       } else if (config.value.providerId === "TikTok") {
         config.value.cookie = appConfig.value.recorder.tiktok.cookie;
       }
+    }
+    if (val.cookieMode && config.value.providerId === "DouYin") {
+      config.value.cookieMode = appConfig.value.recorder.douyin.cookieMode ?? "all";
     }
     if (val.proxy && config.value.providerId === "TikTok") {
       config.value.proxy = appConfig.value.recorder.tiktok.proxy;

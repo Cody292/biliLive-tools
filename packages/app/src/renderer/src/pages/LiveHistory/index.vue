@@ -20,7 +20,7 @@
       />
       <ColumnSelector v-model="visibleColumns" :columns="columnConfig" />
       <n-button type="primary" @click="handleQuery"> 查询 </n-button>
-      <n-button @click="goBack">返回</n-button>
+      <n-button @click="goBack">{{ isCalendarWindow ? "关闭" : "返回" }}</n-button>
     </div>
 
     <!-- 房间信息 -->
@@ -66,7 +66,7 @@ import { FileOpenOutlined } from "@vicons/material";
 import { useConfirm } from "@renderer/hooks";
 import { useVisibleColumns } from "@renderer/hooks/useVisibleColumns";
 import ColumnSelector from "@renderer/components/ColumnSelector.vue";
-import { toVideoPlayerPage } from "@renderer/utils/pages";
+import { openHistoryRecordFolder, toVideoPlayerPage } from "@renderer/utils/pages";
 import { formatTime, formatDuration } from "@renderer/utils";
 import { useTitle } from "@vueuse/core";
 
@@ -121,6 +121,21 @@ defineOptions({
 });
 const route = useRoute();
 const pageTitle = useTitle();
+const isCalendarWindow = route.query.calendarWindow === "1" && !window.isWeb;
+const parseRouteDate = (value: unknown): number | null => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return date.getTime();
+};
+const routeDate = parseRouteDate(route.query.date);
+const endOfLocalDay = (timestamp: number) => {
+  const date = new Date(timestamp);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime() - 1;
+};
 // 主播信息
 const streamerInfo = reactive<StreamerInfo>({
   platform: (route.query.platform as string) || "",
@@ -136,8 +151,8 @@ const queryParams = reactive<QueryParams>({
   liveId: (route.query.liveId as string) || undefined,
   page: 1,
   pageSize: 10,
-  startTime: null,
-  endTime: null,
+  startTime: routeDate,
+  endTime: routeDate,
 });
 
 // 状态变量
@@ -256,21 +271,30 @@ const allColumns: {
             { default: () => h(FileOpenOutlined) },
           ),
         );
-        subNodes.push(
-          h(
-            NIcon,
-            {
-              size: "20",
-              style: {
-                cursor: "pointer",
-              },
-              title: "打开文件夹",
-              onClick: () => openFolder(row.id),
-            },
-            { default: () => h(FolderOpenOutline) },
-          ),
-        );
       }
+      subNodes.push(
+        h(
+          NIcon,
+          {
+            size: "20",
+            style: {
+              cursor: "pointer",
+            },
+            title: "打开文件夹",
+            onClick: () => openFolder(row.id),
+            onMousedown: (event: MouseEvent) => {
+              if (event.button === 1) event.preventDefault();
+            },
+            onAuxclick: (event: MouseEvent) => {
+              if (event.button === 1) {
+                event.preventDefault();
+                openFolder(row.id, true);
+              }
+            },
+          },
+          { default: () => h(FolderOpenOutline) },
+        ),
+      );
       if (window.isWeb) {
         subNodes.push(
           h(
@@ -342,6 +366,7 @@ const handleQuery = async (): Promise<void> => {
   }
 
   // 将时间戳传递给API
+  const endTime = queryParams.endTime;
   const apiParams: QueryRecordsParams = {
     room_id: queryParams.room_id,
     platform: queryParams.platform,
@@ -349,7 +374,7 @@ const handleQuery = async (): Promise<void> => {
     page: queryParams.page,
     pageSize: queryParams.pageSize,
     startTime: queryParams.startTime ?? undefined,
-    endTime: queryParams.endTime ?? undefined,
+    endTime: endTime === null ? undefined : endOfLocalDay(endTime),
   };
 
   loading.value = true;
@@ -424,11 +449,9 @@ const downloadFile = async (id: number) => {
   }
 };
 
-const openFolder = async (id: number) => {
+const openFolder = async (id: number, newTab = false) => {
   try {
-    const { videoFilePath } = await recordHistoryApi.getFileInfo(id);
-    if (!videoFilePath) return;
-    window.api.common.showItemInFolder(videoFilePath);
+    await openHistoryRecordFolder(id, newTab);
   } catch (error: any) {
     notice.error({
       title: error.message || error,
@@ -455,6 +478,10 @@ const removeRecord = async (id: number) => {
 
 const router = useRouter();
 const goBack = () => {
+  if (isCalendarWindow) {
+    window.close();
+    return;
+  }
   router.back();
 };
 

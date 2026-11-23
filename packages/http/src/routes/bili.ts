@@ -5,6 +5,7 @@ import { biliApi, validateBiliupConfig } from "@biliLive-tools/shared/task/bili.
 import { TvQrcodeLogin } from "@renmu/bili-api";
 import {
   formatTitle,
+  formatSeasonTitle,
   formatPartTitle,
   formatDesc,
   uuid,
@@ -161,6 +162,7 @@ const loginObj: {
     res: string;
     status: "scan" | "completed" | "error";
     failReason: string;
+    uid?: number;
   };
 } = {};
 router.post("/login", async (ctx) => {
@@ -185,10 +187,15 @@ router.post("/login", async (ctx) => {
   });
   tv.on("completed", async (res) => {
     loginObj[id].res = JSON.stringify(res);
-    loginObj[id].status = "completed";
-
-    const data = res.data;
-    await biliApi.addUser(data);
+    try {
+      const data = res.data;
+      await biliApi.addUser(data);
+      loginObj[id].uid = data.mid;
+      loginObj[id].status = "completed";
+    } catch (error) {
+      loginObj[id].failReason = error instanceof Error ? error.message : String(error);
+      loginObj[id].status = "error";
+    }
   });
   const url = await tv.login();
 
@@ -242,6 +249,27 @@ router.post("/formatTitle", async (ctx) => {
 
   const title = formatTitle(data.options, template);
   ctx.body = title;
+});
+
+router.post("/formatSeasonTitle", async (ctx) => {
+  const { template, mediaTitleTemplate } = ctx.request.body as {
+    template?: string;
+    mediaTitleTemplate?: string;
+  };
+  const options = {
+    title: "标题",
+    username: "主播名",
+    time: new Date().toISOString(),
+    roomId: 123456,
+    filename: "文件名",
+  };
+  ctx.body = formatSeasonTitle(
+    {
+      ...options,
+      mediaTitle: formatTitle(options, mediaTitleTemplate || options.title),
+    },
+    template,
+  );
 });
 
 router.post("/formatPartTitle", async (ctx) => {

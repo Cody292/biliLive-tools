@@ -1,6 +1,6 @@
 {
   "name": "@bililive-tools/bilibili-recorder",
-  "version": "1.19.3",
+  "version": "1.19.6",
   "description": "bililive-tools bilibili recorder implemention",
   "main": "./lib/index.js",
   "type": "module",
@@ -34,7 +34,11 @@
     "录制",
     "哔哩哔哩"
   ],
-  "repository": "https://github.com/renmu123/biliLive-tools/tree/master/packages/BilibiliRecorder",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/renmu123/biliLive-tools",
+    "directory": "packages/BilibiliRecorder"
+  },
   "author": "renmu123",
   "license": "LGPL",
   "dependencies": {

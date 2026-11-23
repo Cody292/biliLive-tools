@@ -101,7 +101,12 @@ const loginCancel = async (id: string) => {
 
 const loginPoll = async (
   id: string,
-): Promise<{ res: string; status: "scan" | "completed" | "error"; failReason: string }> => {
+): Promise<
+  { res: string; failReason: string } & (
+    | { status: "completed"; uid: number }
+    | { status: "scan" | "error" }
+  )
+> => {
   const res = await request.get("/bili/login/poll", {
     params: { id },
   });
@@ -147,6 +152,17 @@ export const formatWebhookTitle = async (
       roomId: 123456,
       filename: "文件名",
     },
+  });
+  return res.data;
+};
+
+export const formatWebhookSeasonTitle = async (
+  template: string,
+  mediaTitleTemplate: string,
+): Promise<string> => {
+  const res = await request.post("/bili/formatSeasonTitle", {
+    template,
+    mediaTitleTemplate,
   });
   return res.data;
 };
@@ -202,6 +218,7 @@ const bili = {
   loginPoll,
   upload,
   formatWebhookTitle,
+  formatWebhookSeasonTitle,
   formatWebhookPartTitle,
   formatWebhookDesc,
 };

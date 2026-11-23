@@ -37,6 +37,7 @@
     }, // 直播间配置对象 {roomId: {uid, open, ...}}
     ffmpegPreset: undefined, // 默认转码预设
     danmuPreset: undefined, // 默认弹幕预设
+    burnWithoutDanmu: false, // 弹幕压制开启时，弹幕为空或不存在仍进行压制
     afterConvertAction: [], // 转码后执行的操作，removeXml|removeVideo|removeSmallFile|removeAfterConvert2Mp4
     hotProgress: false, // 是否生成高能进度条
     useLiveCover: false, // 是否使用直播封面
@@ -239,6 +240,17 @@
       clientId: "", // 123 云盘 Client ID
       clientSecret: "", // 123 云盘 Client Secret
       limitRate: 0, // 上传限速 (KB/s)
+    },
+    quark: {
+      concurrency: 5, // 同时上传的分片数，1–10
+      limitRate: 0, // 单个上传任务限速 (KB/s)，并发分片分摊额度，0 为不限速
+      auth: {
+        accessToken: "", // OAuth 访问令牌
+        refreshToken: "", // OAuth 刷新令牌
+        deviceId: "",
+        userId: "",
+        clientDeviceId: "",
+      },
     },
     syncConfigs: [], // 同步任务配置列表
   },

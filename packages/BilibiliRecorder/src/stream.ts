@@ -9,6 +9,7 @@ import {
   SourceProfile,
   StreamProfile,
   getRoomBaseInfo,
+  getAnchorInRoom,
 } from "./bilibili_api.js";
 import { assert } from "./utils.js";
 
@@ -138,6 +139,16 @@ export async function getInfo(
       title = base.title;
       cover = base.cover;
       liveStartTime = new Date(base.live_time);
+    }
+  }
+
+  // 我也不知道为啥上面的两个接口可能获取不到主播名，那就尝试换一个接口再取一次
+  if (!owner) {
+    try {
+      const anchor = await getAnchorInRoom(roomInit.room_id);
+      owner = anchor?.info?.uname || owner;
+    } catch (error) {
+      console.warn("获取B站主播名称失败", error);
     }
   }
 
@@ -360,7 +371,10 @@ async function getLiveInfo(
   //   streamOptions,
   //   JSON.stringify(res.playurl_info.playurl.stream, null, 2),
   // );
-  assert(streamInfo, "没有找到支持的流");
+  assert(
+    streamInfo,
+    `未找到可用的流，请尝试更换参数，可用画质: ${res.playurl_info.playurl.g_qn_desc.map((item) => `${item.desc}(${item.qn})`).join(", ")}，可用协议: ${res.playurl_info.playurl.stream.map((item) => item.protocol_name).join(", ")}，选择画质：${opts.qn}，选择协议：${opts.formatName}，选择编码：${opts.codecName}`,
+  );
 
   const streams: StreamProfile[] = streamInfo.accept_qn.map((qn) => {
     const qnDesc = res.playurl_info.playurl.g_qn_desc.find((item) => item.qn === qn);
