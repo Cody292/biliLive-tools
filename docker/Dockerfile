@@ -66,6 +66,7 @@ COPY packages/HuYaRecorder/package.json ./packages/HuYaRecorder/
 COPY packages/liveManager/package.json ./packages/liveManager/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/StreamGet/package.json ./packages/StreamGet/
+COPY packages/TikTokRecorder/package.json ./packages/TikTokRecorder/
 COPY packages/types/package.json ./packages/types/
 COPY packages/XHSRecorder/package.json ./packages/XHSRecorder/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store,sharing=locked \
