@@ -1,3 +1,4 @@
+import os from "node:os";
 import { get } from "lodash-es";
 import type { DouyinCookieAccount } from "@biliLive-tools/types";
 
@@ -76,6 +77,37 @@ function getAccountsArray(accountsPath: string): DouyinCookieAccount[] | null {
   return accounts as DouyinCookieAccount[];
 }
 
+export type SafeMachineLocationOptions = {
+  env?: NodeJS.ProcessEnv;
+  getHostname?: () => string;
+};
+
+function safeHostname(getHostname: () => string = os.hostname): string {
+  try {
+    return getHostname()?.trim() || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * 解析安全的机器定位标识。
+ * - 优先使用 BILILIVE_TOOLS_INSTANCE 环境变量非空值
+ * - 未设置时回退到 os.hostname()
+ * - 仅当 BILILIVE_TOOLS_NODE_IP 非空时追加该显式配置地址
+ * - 不读取 os.networkInterfaces()，避免探测网卡或冒充宿主机
+ */
+export function resolveSafeMachineLocation(options?: SafeMachineLocationOptions): string {
+  const env = options?.env ?? process.env;
+  const instanceEnv = env.BILILIVE_TOOLS_INSTANCE?.trim();
+  const instance = instanceEnv || safeHostname(options?.getHostname);
+  const nodeIp = env.BILILIVE_TOOLS_NODE_IP?.trim();
+  if (nodeIp) {
+    return `${instance} (${nodeIp})`;
+  }
+  return instance;
+}
+
 /**
  * 校验并触发账号健康离线/失效边沿通知。
  * - 边沿进入 invalid 或 relogin_required 时发送通知
@@ -107,9 +139,10 @@ export function checkAndNotifyHealthEdge(
     const remarkOrId = remark ? `${remark} (${accountId})` : accountId;
     const statusText = targetStatus === "relogin_required" ? "需要重新登录" : "授权失效";
     const reasonText = patch.healthReason ?? account.healthReason ?? "鉴权失败";
+    const machine = resolveSafeMachineLocation();
 
     const title = `[抖音账号] 账号${statusText}`;
-    const desp = `账号 ${remarkOrId} 状态变更为 ${targetStatus} (${statusText})，原因：${reasonText}。`;
+    const desp = `账号 ${remarkOrId} 状态变更为 ${targetStatus} (${statusText})，原因：${reasonText}。机器：${machine}。`;
 
     try {
       const res = notifyFn(title, desp);
