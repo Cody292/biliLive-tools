@@ -81,14 +81,20 @@
             </template>
             <n-switch v-model:value="config.sendToWebhook" />
           </n-form-item>
-          <n-form-item>
+          <n-form-item
+            :feedback="mergeFeedback"
+            :validation-status="mergeValidationStatus"
+          >
             <template #label>
               <Tip
                 text="碎片自动合并"
                 tip="本地将同一场直播碎片合并；与是否发送至 webhook 独立"
               ></Tip>
             </template>
-            <n-switch v-model:value="config.autoFragmentMerge" />
+            <n-switch
+              v-model:value="config.autoFragmentMerge"
+              :disabled="autoFragmentMergeDisabled"
+            />
           </n-form-item>
           <n-form-item>
             <template #label>
@@ -135,7 +141,10 @@
                 >全局</n-checkbox
               >
             </n-form-item>
-            <n-form-item>
+            <n-form-item
+              :feedback="segmentFeedback"
+              :validation-status="segmentValidationStatus"
+            >
               <template #label>
                 <Tip
                   text="分段"
@@ -145,7 +154,7 @@
               <div style="display: flex; gap: 10px; align-items: center; flex: 1">
                 <n-switch
                   v-model:value="segmentEnabled"
-                  :disabled="globalFieldsObj.segment"
+                  :disabled="segmentSwitchDisabled"
                 />
                 <span style="white-space: nowrap">启用分段</span>
                 <n-input
@@ -154,7 +163,10 @@
                   placeholder="请输入分段参数"
                 />
               </div>
-              <n-checkbox v-model:checked="globalFieldsObj.segment" class="global-checkbox"
+              <n-checkbox
+                v-model:checked="globalFieldsObj.segment"
+                :disabled="globalSegmentDisabled"
+                class="global-checkbox"
                 >全局</n-checkbox
               >
             </n-form-item>
@@ -1017,6 +1029,7 @@ import {
 import { useConfirm, useBreakpoints } from "@renderer/hooks";
 import { defaultRecordConfig } from "@biliLive-tools/shared/enum.js";
 import { isSegmentActive } from "@biliLive-tools/shared/recorder/segmentPolicy.js";
+import { resolveSegmentMergeExclusion } from "./addModalConflict";
 import { cloneDeep } from "lodash-es";
 
 import type { Recorder, DouyinCookieAccount, DouyuCookieAccount } from "@biliLive-tools/types";
@@ -1124,6 +1137,7 @@ const segmentEnabled = computed<boolean>({
   },
   set(val: boolean) {
     if (globalFieldsObj.value.segment || !config.value) return;
+    if (val && config.value.autoFragmentMerge === true) return;
     ownSegmentEnabled.value = val;
     if (val) {
       const target = isSegmentActive(lastValidSegment.value)
@@ -1150,13 +1164,34 @@ const displaySegment = computed<string>({
   },
   set(val: string) {
     if (globalFieldsObj.value.segment || !config.value) return;
+    if (isSegmentActive(val) && config.value.autoFragmentMerge === true) return;
     ownSegment.value = val;
     config.value.segment = val;
+    ownSegmentEnabled.value = isSegmentActive(val);
     if (isSegmentActive(val)) {
       lastValidSegment.value = String(val);
     }
   },
 });
+
+const segmentMergeExclusion = computed(() => {
+  return resolveSegmentMergeExclusion({
+    globalSegment: appConfig.value?.recorder?.segment,
+    ownSegment: ownSegment.value,
+    isGlobalInherited: Boolean(globalFieldsObj.value.segment),
+    autoFragmentMerge: Boolean(config.value?.autoFragmentMerge),
+  });
+});
+
+const autoFragmentMergeDisabled = computed(
+  () => segmentMergeExclusion.value.autoFragmentMergeDisabled,
+);
+const segmentSwitchDisabled = computed(() => segmentMergeExclusion.value.segmentSwitchDisabled);
+const globalSegmentDisabled = computed(() => segmentMergeExclusion.value.globalSegmentDisabled);
+const mergeFeedback = computed(() => segmentMergeExclusion.value.mergeFeedback);
+const mergeValidationStatus = computed(() => segmentMergeExclusion.value.mergeValidationStatus);
+const segmentFeedback = computed(() => segmentMergeExclusion.value.segmentFeedback);
+const segmentValidationStatus = computed(() => segmentMergeExclusion.value.segmentValidationStatus);
 const xhsRedId = computed({
   get: () => String(config.value.uid ?? "").split("-")[1] ?? "",
   set: (value: string) => {
