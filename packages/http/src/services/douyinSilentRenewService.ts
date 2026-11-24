@@ -157,6 +157,10 @@ export async function silentRenewAccount(
   const healthCheckedAt = mapped.patch?.healthCheckedAt;
   const healthStatus = mapped.patch?.healthStatus;
   const updatedAt = mapped.ok ? mapped.patch?.updatedAt : undefined;
+  const cookie =
+    mapped.ok && typeof mapped.patch?.cookie === "string" && mapped.patch.cookie.trim().length > 0
+      ? mapped.patch.cookie
+      : undefined;
 
   const api: SilentRenewApiResult = {
     ok: mapped.ok,
@@ -165,6 +169,7 @@ export async function silentRenewAccount(
     ...(healthStatus !== undefined ? { healthStatus } : {}),
     ...(healthCheckedAt !== undefined ? { healthCheckedAt } : {}),
     ...(updatedAt !== undefined ? { updatedAt } : {}),
+    ...(cookie !== undefined ? { cookie } : {}),
   };
 
   const resultCookieMeta =
