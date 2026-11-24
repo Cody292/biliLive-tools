@@ -9,8 +9,6 @@ import { archiveToOld, rollbackMoves, type FileMove } from "./fragmentMergeArchi
 import {
   CommandTimeoutError,
   copyRemux,
-  decodeAll,
-  durationTolerance,
   fingerprintsMatch,
   formalMergeTimeoutMs,
   mediaValidateOptions,
@@ -18,6 +16,7 @@ import {
   runCommand,
   type CommandRunner,
 } from "./fragmentMergeFfmpeg.js";
+import { validateOutput } from "./fragmentMergeValidation.js";
 
 export {
   COMMAND_TIMEOUT_MS,
@@ -79,34 +78,6 @@ function rejectedFromCatch(
   throw error;
 }
 
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function validateOutput(input: {
-  readonly run: CommandRunner;
-  readonly ffmpegPath: string;
-  readonly ffprobePath: string;
-  readonly output: string;
-  readonly expectedDuration: number;
-}): Promise<boolean> {
-  if (!(await pathExists(input.output))) return false;
-  const stat = await fs.stat(input.output);
-  if (!stat.isFile() || stat.size <= 0) return false;
-  const meta = await probe(input.run, input.ffprobePath, input.output, mediaValidateOptions(input.expectedDuration));
-  if (meta.duration <= 0) return false;
-  if (Math.abs(meta.duration - input.expectedDuration) > durationTolerance(input.expectedDuration)) {
-    return false;
-  }
-  await decodeAll(input.run, input.ffmpegPath, input.output, mediaValidateOptions(Math.max(input.expectedDuration, meta.duration)));
-  return true;
-}
-
 async function promoteTemp(tempFile: string, output: string): Promise<string> {
   await fs.rename(tempFile, output);
   return output;
@@ -147,6 +118,7 @@ async function remuxCopyToMp4(
       ffprobePath: input.ffprobePath,
       output: tempFile,
       expectedDuration: sourceMeta.duration,
+      expectedFingerprint: sourceMeta,
     });
     if (!ok) {
       await discardTemp(tempFile);
@@ -205,6 +177,7 @@ async function mergeCopy(
       ffprobePath: input.ffprobePath,
       output: tempFile,
       expectedDuration,
+      expectedFingerprint: first,
     });
     await discardTemp(listFile);
     listFile = undefined;
@@ -237,8 +210,14 @@ async function isReadable(
 ): Promise<boolean> {
   try {
     const meta = await probe(run, input.ffprobePath, file);
-    await decodeAll(run, input.ffmpegPath, file, mediaValidateOptions(meta.duration));
-    return true;
+    return await validateOutput({
+      run,
+      ffmpegPath: input.ffmpegPath,
+      ffprobePath: input.ffprobePath,
+      output: file,
+      expectedDuration: meta.duration,
+      expectedFingerprint: meta,
+    });
   } catch (error) {
     if (error instanceof Error) {
       logger.warn("autoFragmentMerge capability skip", { file, error });
@@ -258,10 +237,19 @@ export async function processFragments(
   const exts = files.map(extOf);
   if (files.length === 1) {
     const ext = exts[0];
-    if (ext === ".mp4" || ext === ".ts") return { kind: "noop", reason: "single-keep" };
+    const wantMp4 = input.fragmentMergeOutputFormat === "mp4";
+    if (ext === ".mp4") return { kind: "noop", reason: "single-keep" };
+    if (ext === ".ts") {
+      return wantMp4
+        ? remuxCopyToMp4(input, run, files[0])
+        : { kind: "noop", reason: "single-keep" };
+    }
     if (ext === ".m4s") {
       const readable = await isReadable(input, run, files[0]);
-      return readable ? { kind: "noop", reason: "single-keep" } : { kind: "noop", reason: "capability-skip" };
+      if (!readable) return { kind: "noop", reason: "capability-skip" };
+      return wantMp4
+        ? remuxCopyToMp4(input, run, files[0])
+        : { kind: "noop", reason: "single-keep" };
     }
     if (ext === ".flv") return remuxCopyToMp4(input, run, files[0]);
     return { kind: "noop", reason: "single-keep" };
