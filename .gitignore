@@ -48,6 +48,14 @@ packages/StreamGet/test/douyu/errorCode.test.ts
 packages/liveManager/test/manager.videoFileCompleted.test.ts
 packages/liveManager/test/manager.test.ts
 packages/app/test/main/handlers.segmentMerge.test.ts
+**/test/
+**/tests/
+**/__tests__/
+**/*.test.*
+**/*.spec.*
+
+# Root-level generated auto-import declarations
+/auto-imports.d.ts
 
 # Local experiment / planning / scratch assets
 .temp-research/
